@@ -185,7 +185,7 @@ function RefreshHeader()
 		CohesionMax = float(CohesionThresholds[Clamp(BondData.BondLevel + 1, 0, CohesionThresholds.Length - 1)]);
 		CohesionPercent = float(BondData.Cohesion) / CohesionMax;
 
-		if (BondData.BondLevel < 2 && class'X2StrategyGameRulesetDataStructures'.static.CanHaveBondAtLevel(Unit, Bondmate, BondData.BondLevel + 1))
+		if (BondData.BondLevel < 3 && class'X2StrategyGameRulesetDataStructures'.static.CanHaveBondAtLevel(Unit, Bondmate, BondData.BondLevel + 1))
 		{
 			FindOrCreateUpgradeButton().Show();
 			FindOrCreateUpgradeButton().SetTitle("Improve Bond To Level" @ BondData.BondLevel + 1);

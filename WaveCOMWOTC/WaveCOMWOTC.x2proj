@@ -55,6 +55,9 @@
     <Content Include="Config\XComEngine.ini" />
     <Content Include="Config\XComGame.ini" />
     <Content Include="Localization\XComGame.int" />
+    <Content Include="Src\WOTCWaveCOM\Classes\WaveCOMFinalShellPatcher.uc">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOMGameStateContext_UpdateUnit.uc">
       <SubType>Content</SubType>
     </Content>

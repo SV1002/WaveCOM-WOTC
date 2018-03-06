@@ -26,46 +26,8 @@ event OnInit(UIScreen Screen)
 	}
 	else if (UIFinalShell(Screen) != none)
 	{
-		UIFinalShell(Screen).MainMenu[0].OnClickedDelegate = OpenNewDifficultyScreen;
-		UIFinalShell(Screen).MainMenu[0].SetText("WaveCOM");
-		//CreateWaveMenu(UIFinalShell(Screen));
+		Screen.Spawn(class'WaveCOMFinalShellPatcher', Screen).InitPanel('WaveCOMShellPatcher');
 	}
-}
-
-event OnReceiveFocus(UIScreen Screen)
-{
-	if (UIFinalShell(Screen) != none)
-	{
-		UIFinalShell(Screen).MainMenu[0].OnClickedDelegate = OpenNewDifficultyScreen;
-		UIFinalShell(Screen).MainMenu[0].SetText("WaveCOM");
-		//CreateWaveMenu(UIFinalShell(Screen));
-	}
-}
-
-function CreateWaveMenu(UIFinalShell Screen)
-{
-	local UIX2MenuButton Button; 
-
-	Button = Screen.Spawn(class'UIX2MenuButton', Screen.MainMenuContainer);
-
-	Button.InitMenuButton(false, 'WaveCOM', "WaveCOM", OpenNewDifficultyScreen);
-	Button.OnSizeRealized = Screen.OnButtonSizeRealized;
-	Screen.MainMenu.AddItem(Button);
-}
-
-simulated function OpenNewDifficultyScreen(UIButton button)
-{
-	local UIMovie TargetMovie;
-	local UIScreen TempScreen;
-
-	//Turning off 3D shell option for now, as the soldier model covers up the second wave options. 
-	TargetMovie = XComShellPresentationLayer(button.Screen.Owner) == none ? XComPresentationLayerBase(button.Screen.Owner).Get2DMovie() : XComPresentationLayerBase(button.Screen.Owner).Get3DMovie();
-	//TargetMovie = Get2DMovie();
-
-	TempScreen = button.Screen.Owner.Spawn( class'WaveCOM_UIShellDifficulty', button.Screen.Owner  );
-	WaveCOM_UIShellDifficulty(TempScreen).m_bIsPlayingGame = false; 
-
-	XComPresentationLayerBase(button.Screen.Owner).ScreenStack.Push( TempScreen, TargetMovie );
 }
 
 simulated function TransferMission(UIButton ButtonClicked)

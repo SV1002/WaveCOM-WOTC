@@ -17,10 +17,12 @@ static function X2EventListenerTemplate AddResearchEvent()
 	Template.RegisterInTactical = true;
 	Template.AddEvent('ResearchCompleted', ResearchComplete);
 
+	`log("Research handler template loaded",, 'UnitProject');
+
 	return Template;
 }
 
-function EventListenerReturn ResearchComplete(Object EventData, Object EventSource, XComGameState GameState, Name EventID, Object CallbackData)
+static function EventListenerReturn ResearchComplete(Object EventData, Object EventSource, XComGameState GameState, Name EventID, Object CallbackData)
 {
 	local XComGameState_Tech TechState;
 	local XComGameState_Unit StrategyUnit;

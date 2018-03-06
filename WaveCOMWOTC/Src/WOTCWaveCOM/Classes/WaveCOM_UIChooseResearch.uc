@@ -8,6 +8,7 @@ struct DynamicUpgradeData
 	var int FirstIncrease;
 	var bool ScaleWithSquadSize;
 	var bool IgnoreDiscounts;
+	var bool AddDeployCost;
 };
 
 // Add discounts for inspired techs.
@@ -76,7 +77,11 @@ simulated function array<Commodity> ConvertTechsToCommodities()
 			TechComm.CostScalars = XComHQ.ResearchCostScalars;
 			if (TechState.bInspired)
 			{
-				TechComm.DiscountPercent += class'X2DownloadableContentInfo_WOTCWaveCOM'.default.InspireResearchCostDiscount;
+				TechComm.DiscountPercent = class'X2DownloadableContentInfo_WOTCWaveCOM'.default.InspireResearchCostDiscount;
+			}
+			else
+			{
+				TechComm.DiscountPercent = 0;
 			}
 		}
 
@@ -119,6 +124,7 @@ static function UpdateResearchCostDynamic(XComGameState_Tech TechState, out Stra
 	if (UpgradeIndex != INDEX_NONE)
 	{
 		Tech = TechState.GetMyTemplate();
+		CostIncrease = 0;
 		CostData = class'X2DownloadableContentInfo_WOTCWaveCOM'.default.RepeatableUpgradeCosts[UpgradeIndex];
 
 		if (CostData.ScaleWithSquadSize)
@@ -130,19 +136,35 @@ static function UpdateResearchCostDynamic(XComGameState_Tech TechState, out Stra
 			StackCount = TechState.TimesResearched;
 		}
 
+		if (CostData.AddDeployCost)
+		{
+			if (class'UIUtilities_Strategy'.static.GetXComHQ().Squad.Length > 
+				class'WaveCOM_UILoadoutButton'.default.WaveCOMDeployCosts.Length - 1)
+			{
+				CostIncrease += class'WaveCOM_UILoadoutButton'.default.WaveCOMDeployCosts[
+									class'WaveCOM_UILoadoutButton'.default.WaveCOMDeployCosts.Length - 1];
+			}
+			else
+			{
+				CostIncrease += class'WaveCOM_UILoadoutButton'.default.WaveCOMDeployCosts[
+									class'UIUtilities_Strategy'.static.GetXComHQ().Squad.Length];
+			}
+		}
+
 		if (StackCount > CostData.FirstIncrease)
 		{
 			StackCount = StackCount - CostData.FirstIncrease;
-			CostIncrease = Min(Round(CostData.SupplyIncrement * StackCount), CostData.SupplyMax);
-			if (CostData.IgnoreDiscounts && ProvingGroundsDiscount > 0)
-			{
-				if (Tech.bProvingGround)
-				{
-					CostIncrease *= (100.0f / (100.0f - ProvingGroundsDiscount));
-				}
-			}
-			class'X2DownloadableContentInfo_WOTCWaveCOM'.static.AddSupplyCost(Costs.ResourceCosts, CostIncrease);
+			CostIncrease += Min(Round(CostData.SupplyIncrement * StackCount), CostData.SupplyMax);
 		}
+
+		if (CostData.IgnoreDiscounts && ProvingGroundsDiscount > 0)
+		{
+			if (Tech.bProvingGround)
+			{
+				CostIncrease *= (100.0f / (100.0f - ProvingGroundsDiscount));
+			}
+		}
+		class'X2DownloadableContentInfo_WOTCWaveCOM'.static.AddSupplyCost(Costs.ResourceCosts, CostIncrease);
 	}
 }
 

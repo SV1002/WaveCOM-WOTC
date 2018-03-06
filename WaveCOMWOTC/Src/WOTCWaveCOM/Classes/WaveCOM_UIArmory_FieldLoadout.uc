@@ -284,7 +284,7 @@ static function UpdateUnit(int UnitID)
 
 	foreach Unit.InventoryItems(ItemReference)
 	{
-		ItemState = XComGameState_Item(`XCOMHISTORY.GetGameStateForObjectID(ItemReference.ObjectID));
+		ItemState = XComGameState_Item(NewGameState.ModifyStateObject(class'XComGameState_Item', ItemReference.ObjectID)); // Add to GameState so the visualizers is sync'd
 		if( ItemState.OwnerStateObject.ObjectID == Unit.ObjectID )
 		{
 			ItemState.CreateCosmeticItemUnit(NewGameState);
@@ -619,7 +619,7 @@ simulated function OnReceiveFocus()
 simulated function PopulateData()
 {
 	local XComGameState_Unit Unit, Bondmate;
-	local UIListItemString PsiButton, BondButton;
+	local UIListItemString PsiButton, BondButton, CustomizeButton;
 	local XComGameState_HeadquartersXCom XComHQ;
 	local SoldierBond BondData;
 	local StateObjectReference BondmateRef;
@@ -628,6 +628,7 @@ simulated function PopulateData()
 
 	// Check for Psi tech. If not reseasrched remove button
 	XComHQ = class'UIUtilities_Strategy'.static.GetXComHQ();
+	CustomizeButton = UIListItemString(List.GetItem(0));
 	PsiButton = UIListItemString(List.GetItem(5));
 	BondButton = UIListItemString(List.GetItem(6));
 	Unit = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(UnitReference.ObjectID));
@@ -647,7 +648,7 @@ simulated function PopulateData()
 		PsiButton.SetText("Psionics not researched");
 		PsiButton.SetDisabled(true, "Psionics not researched");
 	}
-	if( Unit.HasSoldierBond(BondmateRef, BondData) && BondData.BondLevel < 2 )
+	if( Unit.HasSoldierBond(BondmateRef, BondData) && BondData.BondLevel < 3 )
 	{
 		Bondmate = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(BondmateRef.ObjectID));
 		
@@ -655,6 +656,10 @@ simulated function PopulateData()
 		{
 			BondButton.NeedsAttention(true);
 		}
+	}
+	if (Unit.GetMyTemplate().UICustomizationMenuClass != class'UICustomize_Menu')
+	{
+		CustomizeButton.SetDisabled(true, "Customization not supported");
 	}
 }
 

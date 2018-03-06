@@ -11,6 +11,9 @@ var const config array<int> WaveCOMHeroDeployExtraCosts;
 var const config array<int> WaveCOMHeroIntelCosts;
 var int CurrentDeployCost;
 
+var bool PendingResearchScreen;
+var bool WaitForInspireBreakthroughPopup;
+
 simulated function InitScreen(UIScreen ScreenParent)
 {
 	local Object ThisObj;
@@ -262,6 +265,7 @@ private function EventListenerReturn ResearchComplete(Object EventData, Object E
 	local XComGameState_HeadquartersXCom XComHQ;
 	local XComGameState AddToGameState;
 	local StateObjectReference InspiredID;
+	local bool bShouldShowPopup;
 
 	`log("Event Heard :: ResearchComplete",, 'WaveCOM');
 	XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
@@ -282,19 +286,19 @@ private function EventListenerReturn ResearchComplete(Object EventData, Object E
 		`PRES.BuildUIAlert(PropertySet, 'eAlert_ItemReceivedProvingGround', None, '', "Geoscape_ItemComplete");
 		class'X2StrategyGameRulesetDataStructures'.static.AddDynamicNameProperty(PropertySet, 'ItemTemplate', TechState.ItemRewards[0].DataName);
 		class'X2StrategyGameRulesetDataStructures'.static.AddDynamicIntProperty(PropertySet, 'TechRef', TechState.GetReference().ObjectID);
-		`PRES.QueueDynamicPopup(PropertySet);
+		bShouldShowPopup = true;
 	}
 	else if (TechState != none && TechState.GetMyTemplate().bProvingGround)
 	{
 		`PRES.BuildUIAlert(PropertySet, 'eAlert_ProvingGroundProjectComplete', PGCompletedCB, '', "Geoscape_ProjectComplete", true);
 		class'X2StrategyGameRulesetDataStructures'.static.AddDynamicIntProperty(PropertySet, 'TechRef', TechState.GetReference().ObjectID);
-		`PRES.QueueDynamicPopup(PropertySet);
+		bShouldShowPopup = true;
 	}
 	else if (TechState != none)
 	{		
 		`PRES.BuildUIAlert(PropertySet, 'eAlert_ResearchComplete', ResearchCB, '', "Geoscape_ResearchComplete", true);
 		class'X2StrategyGameRulesetDataStructures'.static.AddDynamicIntProperty(PropertySet, 'TechRef', TechState.GetReference().ObjectID);
-		`PRES.QueueDynamicPopup(PropertySet);
+		bShouldShowPopup = true;
 	}
 
 	TechTemplate = TechState.GetMyTemplate(); // Get the template for the completed tech
@@ -314,9 +318,10 @@ private function EventListenerReturn ResearchComplete(Object EventData, Object E
 
 			if (XComHQ.CurrentBreakthroughTech.ObjectID > 0)
 			{
-				`PRES.BuildUIAlert(SecondSet, 'eAlert_BreakthroughResearchAvailable', None, 'OnInspiredTech', "ResearchBreakthrough", true);
+				`PRES.BuildUIAlert(SecondSet, 'eAlert_BreakthroughResearchAvailable', DismissInspireBreakthroughPopup, 'OnInspiredTech', "ResearchBreakthrough", true);
 				class'X2StrategyGameRulesetDataStructures'.static.AddDynamicIntProperty(SecondSet, 'TechRef', XComHQ.CurrentBreakthroughTech.ObjectID);
 				`PRES.QueueDynamicPopup(SecondSet);
+				WaitForInspireBreakthroughPopup = true;
 			}
 		}
 		else if (XComHQ.CurrentInspiredTech.ObjectID <= 0 || XComHQ.CurrentInspiredTech.ObjectID == TechState.ObjectID)
@@ -330,11 +335,18 @@ private function EventListenerReturn ResearchComplete(Object EventData, Object E
 	
 			if (InspiredID.ObjectID > 0)
 			{
-				`PRES.BuildUIAlert(SecondSet, 'eAlert_InspiredResearchAvailable', None, '', "ResearchInspiration", true);
+				`PRES.BuildUIAlert(SecondSet, 'eAlert_InspiredResearchAvailable', DismissInspireBreakthroughPopup, '', "ResearchInspiration", true);
 				class'X2StrategyGameRulesetDataStructures'.static.AddDynamicIntProperty(SecondSet, 'TechRef', InspiredID.ObjectID);
 				`PRES.QueueDynamicPopup(SecondSet);
+				WaitForInspireBreakthroughPopup = true;
 			}
 		}
+	}
+
+
+	if (bShouldShowPopup)
+	{
+		`PRES.QueueDynamicPopup(PropertySet);
 	}
 
 	return UpdateTechCost(EventData, EventSource, NewGameState, InEventID, CallbackData);
@@ -352,6 +364,22 @@ private function EventListenerReturn UpdateTechCost(Object EventData, Object Eve
 simulated function ResearchCB(name eAction, out DynamicPropertySet AlertData, optional bool bInstant = false)
 {
 	if (eAction == 'eUIAction_Accept')
+	{
+		if (WaitForInspireBreakthroughPopup)
+		{
+			PendingResearchScreen = true;
+		}
+		else
+		{
+			OpenResearchMenu(Button4);
+		}
+	}
+}
+
+simulated function DismissInspireBreakthroughPopup(name eAction, out DynamicPropertySet AlertData, optional bool bInstant = false)
+{
+	WaitForInspireBreakthroughPopup = false;
+	if (PendingResearchScreen)
 	{
 		OpenResearchMenu(Button4);
 	}
@@ -498,6 +526,7 @@ public function OpenBlackMarket(UIButton Button)
 public function OpenResearchMenu(UIButton Button)
 {
 	local WaveCOM_UIChooseResearch LoadedScreen;
+	PendingResearchScreen = false;
 	UpdateResources();
 	LoadedScreen = TacHUDScreen.Movie.Pres.Spawn(class'WaveCOM_UIChooseResearch', TacHUDScreen.Movie.Pres);
 	TacHUDScreen.Movie.Stack.Push(LoadedScreen, TacHUDScreen.Movie);

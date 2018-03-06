@@ -50,11 +50,6 @@ simulated function PopulateData()
 		`XEVENTMGR.TriggerEvent('OnHeroPromotionScreen', , , NewGameState);
 		`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
 	}
-	else if (Unit.GetRank() >= 2 && Unit.ComInt >= eComInt_Gifted)
-	{
-		// Check to see if Unit has high combat intelligence, display tutorial popup if so
-		`HQPRES.UICombatIntelligenceIntro(Unit.GetReference());
-	}
 
 	AS_SetRank(rankIcon);
 	AS_SetClass(classIcon);

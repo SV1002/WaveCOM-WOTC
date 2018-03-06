@@ -328,6 +328,9 @@ static function AddSupplyCost(out array<ArtifactCost> Resources, int SupplyDiff)
 {
 	local ArtifactCost Resource, NewResource;
 
+	if (SupplyDiff == 0)
+		return;
+
 	NewResource.ItemTemplateName = 'Supplies';
 
 	foreach Resources(Resource)
