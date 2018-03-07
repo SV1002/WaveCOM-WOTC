@@ -82,6 +82,9 @@
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_MissionSet.uc">
       <SubType>Content</SubType>
     </Content>
+    <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_SyncVisualizerRuleset.uc">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UIArmory_FieldLoadout.uc">
       <SubType>Content</SubType>
     </Content>
@@ -92,6 +95,12 @@
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UIArmory_PromotionHero.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UIArmory_PromotionHeroColumn.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UIArmory_PromotionItem.uc">
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UIArmory_WeaponUpgrade.uc">

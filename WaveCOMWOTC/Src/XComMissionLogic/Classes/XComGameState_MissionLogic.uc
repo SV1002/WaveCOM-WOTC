@@ -20,13 +20,12 @@ var private array<SeqEvent_UnitAcquiredItem> UnitAcquiredItemEvents;
 
 var private array<delegate<OnNoPlayableUnitsRemainingDelegate> > NoPlayableUnitsRemainingEvents;
 var private bool bHasRegisteredEventObservers;
-//Prevents the calls that detect this condition from triggering multiple times for the same game state frame.
-var private array<XGPlayer> TriggeredNoPlayableUnits_PlayerList; 
 
 var bool bIsBeingTransferred;
 
-delegate OnNoPlayableUnitsRemainingDelegate(XGPlayer TeamOutOfUnits);
+var int LatestCheckForNoUnitIndex;
 
+delegate OnNoPlayableUnitsRemainingDelegate(array<XGPlayer> TeamOutOfUnits, array<XGPlayer> AllTeams);
 
 function SetupMissionStartState(XComGameState StartState);
 function RegisterEventHandlers();
@@ -156,10 +155,14 @@ private function EventListenerReturn CheckForBleedingOutUnits(Object EventData, 
 	local XComGameStateHistory History;
 	local XComGameState_Unit Unit;
 	local XComGameState_Unit PreviousUnit;
+	local XComGameState_Unit SourceUnit;
 
 	History = `XCOMHISTORY;
 
-	foreach NewGameState.IterateByClassType(class'XComGameState_Unit', Unit)
+	SourceUnit = XComGameState_Unit(EventSource);
+	
+	Unit = XComGameState_Unit(NewGameState.GetGameStateForObjectID(SourceUnit.ObjectID));
+	if (Unit != none)
 	{
 		if(Unit.IsBleedingOut())
 		{
@@ -182,10 +185,14 @@ private function EventListenerReturn CheckForUnconsciousUnits(Object EventData, 
 	local XComGameStateHistory History;
 	local XComGameState_Unit Unit;
 	local XComGameState_Unit PreviousUnit;
+	local XComGameState_Unit SourceUnit;
 
 	History = `XCOMHISTORY;
 
-	foreach NewGameState.IterateByClassType(class'XComGameState_Unit', Unit)
+	SourceUnit = XComGameState_Unit(EventSource);
+
+	Unit = XComGameState_Unit(NewGameState.GetGameStateForObjectID(SourceUnit.ObjectID));
+	if (Unit != none)
 	{
 		if(Unit.IsUnconscious())
 		{
@@ -213,11 +220,11 @@ private function EventListenerReturn CheckForDeadUnits(Object EventData, Object 
 	History = `XCOMHISTORY;
 
 	SourceUnit = XComGameState_Unit(EventSource);
-
-	foreach NewGameState.IterateByClassType(class'XComGameState_Unit', Unit)
+	Unit = XComGameState_Unit(NewGameState.GetGameStateForObjectID(SourceUnit.ObjectID));
+	if (Unit != none)
 	{
 		// Make sure we only trigger the event on the source unit, because CheckForDeadUnits is called for every dead unit.
-		if(Unit.IsDead() && SourceUnit != none && Unit.ObjectID == SourceUnit.ObjectID)
+		if(Unit.IsDead())
 		{
 			PreviousUnit = XComGameState_Unit(History.GetGameStateForObjectID(Unit.ObjectID,, NewGameState.HistoryIndex - 1));
 			if(PreviousUnit != none && PreviousUnit.IsAlive())
@@ -238,65 +245,12 @@ private function EventListenerReturn CheckForDeadUnits(Object EventData, Object 
 //Uses the event manager, but may also be called manually. If NewGameState is specified as 'none', then the system simply 
 //checks whether the specified player has playable units rather than being edge triggered. This is used as a failsafe by
 //the tactical game ruleset.
-private function bool DidPlayerRunOutOfPlayableUnits(XGPlayer InPlayer, XComGameState NewGameState)
+private function bool DidPlayerRunOutOfPlayableUnits(XGPlayer InPlayer)
 {	
 	local XComGameStateHistory History;
 	local XComGameState_Unit Unit;
-	local XComGameState_Unit PreviousUnit;
-	local XComGameState_Unit RemovedUnit;
-	local int ExamineHistoryFrameIndex;
 
-	History = `XCOMHISTORY;	
-
-	if(NewGameState != none)
-	{
-		ExamineHistoryFrameIndex = NewGameState.HistoryIndex;
-
-		// find any unit on this team that was in play the previous state but not this one
-		foreach NewGameState.IterateByClassType(class'XComGameState_Unit', Unit)
-		{
-			// Don't count turrets, ever.  Also ignore unselectable units (mimic beacons).
-			if( Unit.IsTurret() || Unit.GetMyTemplate().bNeverSelectable )
-				continue;
-
-			//For units on our team, check if they recently died or became incapacitated.
-			if (Unit.ControllingPlayer.ObjectID == InPlayer.ObjectID)
-			{
-				if (!Unit.IsAlive() || Unit.bRemovedFromPlay || Unit.IsIncapacitated())
-				{
-					// this unit is no longer playable. See if it was playable in the previous state
-					PreviousUnit = XComGameState_Unit(History.GetGameStateForObjectID(Unit.ObjectID, , ExamineHistoryFrameIndex - 1));
-					if (PreviousUnit.IsAlive() && !PreviousUnit.bRemovedFromPlay && !PreviousUnit.IsIncapacitated())
-					{
-						RemovedUnit = Unit;
-						break;
-					}
-				}
-			}
-			else
-			{
-				//For units on the other team, check if they were stolen from our team (via mind-control, typically)
-				PreviousUnit = XComGameState_Unit(History.GetGameStateForObjectID(Unit.ObjectID, , ExamineHistoryFrameIndex - 1));
-				if (PreviousUnit.ControllingPlayer.ObjectID == InPlayer.ObjectID)
-				{
-					//This unit was taken by another team, but used to be on our team.
-					RemovedUnit = Unit;
-					break;
-				}
-			}
-
-		}
-
-		// no unit was removed for this player, so no need to continue checking the entire team
-		if(RemovedUnit == none)
-		{
-			return false;
-		}
-	}	
-	else
-	{
-		ExamineHistoryFrameIndex = -1;
-	}
+	History = `XCOMHISTORY;
 
 	// at least one unit was removed from play for this player on this state. If all other units
 	// for this player are also out of play on this state, then this must be the state where
@@ -305,7 +259,7 @@ private function bool DidPlayerRunOutOfPlayableUnits(XGPlayer InPlayer, XComGame
 	{
 		if( Unit.ControllingPlayer.ObjectID == InPlayer.ObjectID && !Unit.GetMyTemplate().bIsCosmetic && !Unit.IsTurret() && !Unit.GetMyTemplate().bNeverSelectable )
 		{
-			Unit = XComGameState_Unit(History.GetGameStateForObjectID(Unit.ObjectID, , ExamineHistoryFrameIndex));
+			Unit = XComGameState_Unit(History.GetGameStateForObjectID(Unit.ObjectID));
 			if( Unit == None || (Unit.IsAlive() && !Unit.bRemovedFromPlay && !Unit.IsIncapacitated()) )
 			{
 				return false;
@@ -314,7 +268,7 @@ private function bool DidPlayerRunOutOfPlayableUnits(XGPlayer InPlayer, XComGame
 	}
 
 	// the alien team has units remaining if they have reinforcements already queued up
-	if( InPlayer.m_eTeam == eTeam_Alien && AnyPendingReinforcements() )
+	if( (InPlayer.m_eTeam == eTeam_Alien || InPlayer.m_eTeam == eTeam_TheLost) && AnyPendingReinforcements() )
 	{
 		return false;
 	}
@@ -346,28 +300,37 @@ private function EventListenerReturn CheckForTeamHavingNoPlayableUnits(Object Ev
 	local XComGameStateHistory History;
 	local XComGameState_Player PlayerObject;
 	local XGPlayer PlayerVisualizer;
-	local bool bFired;
+	local array<XGPlayer> DefeatedPlayers, AllPlayers;
 
 	if (NoPlayableUnitsRemainingEvents.Length == 0) return ELR_NoInterrupt; // nothing to do
 	
 	History = `XCOMHISTORY;
+
+	if ( LatestCheckForNoUnitIndex >= History.GetCurrentHistoryIndex())
+	{
+		return ELR_NoInterrupt; // We already processed this game state, bye.
+	}
+	LatestCheckForNoUnitIndex = History.GetCurrentHistoryIndex();
+	
 	foreach History.IterateByClassType(class'XComGameState_Player', PlayerObject)
 	{
 		PlayerVisualizer = XGPlayer(PlayerObject.GetVisualizer());		
-		if( TriggeredNoPlayableUnits_PlayerList.Find(PlayerVisualizer) == -1 ) //See if we have already triggered for this player
+		if( DefeatedPlayers.Find(PlayerVisualizer) == INDEX_NONE ) //See if we have already triggered for this player
 		{
-			bFired = DidPlayerRunOutOfPlayableUnits(PlayerVisualizer, NewGameState);
-			if( bFired )		
+			if( DidPlayerRunOutOfPlayableUnits(PlayerVisualizer) )		
 			{
-				TriggeredNoPlayableUnits_PlayerList.AddItem(PlayerVisualizer);
-				foreach NoPlayableUnitsRemainingEvents(Listener)
-				{
-					Listener(PlayerVisualizer);
-				}
+				DefeatedPlayers.AddItem(PlayerVisualizer);
 			}
-		}		
+		}
+		AllPlayers.AddItem(PlayerVisualizer);
 	}
-	TriggeredNoPlayableUnits_PlayerList.Remove(0, TriggeredNoPlayableUnits_PlayerList.Length);
+	if (DefeatedPlayers.Length > 0)
+	{
+		foreach NoPlayableUnitsRemainingEvents(Listener)
+		{
+			Listener(DefeatedPlayers, AllPlayers);
+		}
+	}
 
 	return ELR_NoInterrupt;
 }

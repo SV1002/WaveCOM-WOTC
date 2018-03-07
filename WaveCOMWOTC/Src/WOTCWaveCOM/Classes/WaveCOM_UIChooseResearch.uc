@@ -247,3 +247,8 @@ function SetNewResearchProject(int iOption)
 	XComHQ = class'UIUtilities_Strategy'.static.GetXComHQ();
 	XComHQ.HandlePowerOrStaffingChange();
 }
+
+defaultproperties
+{
+	bConsumeMouseEvents = true;
+}

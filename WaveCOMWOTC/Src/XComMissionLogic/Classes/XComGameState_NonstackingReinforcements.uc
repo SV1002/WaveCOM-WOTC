@@ -130,6 +130,11 @@ static function bool InitiateReinforcements(
 		NewAIReinforcementSpawnerState.Countdown = Encounter.ReinforcementCountdown;
 	}
 
+	if (Encounter.TeamToSpawnInto == eTeam_TheLost)
+	{
+		NewAIReinforcementSpawnerState.Countdown++; // Losts turn is after alien's turn, so to properly match the alien's reinforcement interval you need to add 1 turn
+	}
+
 	if( OverrideTargetLocation )
 	{
 		DesiredSpawnLocation = TargetLocationOverride;

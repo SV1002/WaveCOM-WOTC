@@ -11,6 +11,9 @@ enum eWaveStatus
 var eWaveStatus WaveStatus;
 var int CombatStartCountdown;
 var int WaveNumber;
+var bool AliensDefeated;
+
+var array<name> ActiveSitReps;
 
 var int OldSupply;
 
@@ -19,6 +22,9 @@ struct WaveEncounter {
 	var int Earliest;
 	var int Latest;
 	var int Weighting;
+	var name IncludeTacticalTag;
+	var name ExcludeTacticalTag;
+	var bool TacticalTagOverride; // If this is true, this will remove all other encounters without tacticaltagoverride if it is valid, requires IncludeTacticalTag
 
 	structdefaultproperties
 	{
@@ -26,6 +32,16 @@ struct WaveEncounter {
 		Latest = 1000
 		Weighting = 1
 	}
+};
+
+struct SitRepWaveModifier {
+	var int WaveCountMod;
+	var name SitRep;
+};
+
+struct RollForSitRep {
+	var name SitRepTemplateName;
+	var int Weight;
 };
 
 var const config int WaveCOMKillSupplyBonusBase;
@@ -38,13 +54,16 @@ var const config int WaveCOMPassiveXPPerKill;
 var const config array<int> WaveCOMPodCount;
 var const config array<int> WaveCOMForceLevel;
 var const config array<WaveEncounter> WaveEncounters;
-var const config array<name> LostWaves;
+var const config array<SitRepWaveModifier> SitRepModifiers;
+var const config array<int> MaxLostWaves;
+var const config array<RollForSitRep> SitRepGenerateData;
+var const config array<int> SitRepChance;
 
 delegate EventListenerReturn OnEventDelegate(Object EventData, Object EventSource, XComGameState GameState, Name EventID, Object CallbackData);
 
 function EventListenerReturn RemoveExcessUnits(Object EventData, Object EventSource, XComGameState GameState, Name EventID, Object CallbackData)
 {
-	local StateObjectReference AbilityReference, ItemReference, BlankReference;
+	local StateObjectReference ItemReference, BlankReference;
 	local XComGameState_Unit UnitState, CosmeticUnit;
 	local XComGameState_Item ItemState;
 	local XComGameState NewGameState;
@@ -57,6 +76,7 @@ function EventListenerReturn RemoveExcessUnits(Object EventData, Object EventSou
 	local XComPerkContentShared	hPawnPerk;
 	local XGWeapon WeaponVis;
 	local XComWeapon WeaponMeshVis;
+	local array<XComGameState_Unit> UnitToSyncVis;
 
 	class'WaveCOM_UILoadoutButton'.static.ChooseSpawnLocation(NextSpawn);
 	NextTile = `XWORLD.GetTileCoordinatesFromPosition(NextSpawn);
@@ -75,11 +95,7 @@ function EventListenerReturn RemoveExcessUnits(Object EventData, Object EventSou
 
 				`log("Cleaning Abilities");
 				UnitState = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitState.ObjectID));
-				foreach UnitState.Abilities(AbilityReference)
-				{
-					NewGameState.RemoveStateObject(AbilityReference.ObjectID);
-				}
-				UnitState.Abilities.Length = 0;
+				class'WaveCOM_UIArmory_FieldLoadout'.static.ClearAbilities(UnitState, NewGameState);
 				Visualizer = XGUnit(UnitState.FindOrCreateVisualizer());
 				foreach Visualizer.GetPawn().arrTargetingPerkContent(hPawnPerk)
 				{
@@ -114,7 +130,7 @@ function EventListenerReturn RemoveExcessUnits(Object EventData, Object EventSou
 						}
 					}
 				}
-				class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState, EffectContext);
+				class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState);
 				UnitState.RemoveUnitFromPlay();
 				`XWORLD.ClearTileBlockedByUnitFlag(UnitState);
 				`XEVENTMGR.TriggerEvent('UpdateDeployCostDelayed',,, NewGameState);
@@ -132,9 +148,12 @@ function EventListenerReturn RemoveExcessUnits(Object EventData, Object EventSou
 			{
 				// Refresh unit state to ensure events are registered correctly.
 				FullRefreshSoldier(UnitState.GetReference());
+				UnitToSyncVis.AddItem(UnitState);
 			}
 		}
 	}
+
+	class'WaveCOM_UIArmory_FieldLoadout'.static.SyncVisualizers(UnitToSyncVis);
 
 	this = self;
 
@@ -146,6 +165,7 @@ function EventListenerReturn RemoveExcessUnits(Object EventData, Object EventSou
 function SetupMissionStartState(XComGameState StartState)
 {
 	local XComGameState_BlackMarket BlackMarket;
+	local XComGameState_BattleData BattleData;
 	local Object ThisObj;
 
 	`log("WaveCOM :: Setting Up State - Refresh Black Market and Remove extra units");
@@ -159,6 +179,9 @@ function SetupMissionStartState(XComGameState StartState)
 	class'X2DownloadableContentInfo_WOTCWaveCOM'.static.FixGroupSpawn(); // TEMP FIX FOR TACTICAL TRANSFER CAUSING NO ACTIONS
 
 	ThisObj = self;
+	
+	BattleData = XComGameState_BattleData(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_BattleData'));
+	BattleData.SetGlobalAbilityEnabled( 'PlaceEvacZone', false, StartState);
 
 	`XEVENTMGR.RegisterForEvent(ThisObj, 'HACK_RemoveExcessSoldiers', RemoveExcessUnits, ELD_OnStateSubmitted,, StartState);
 	`XEVENTMGR.TriggerEvent('HACK_RemoveExcessSoldiers', StartState, StartState, StartState);
@@ -174,19 +197,25 @@ function RegisterEventHandlers()
 
 function UpdateCombatCountdown(optional XComGameState NewGameState)
 {
-	if (WaveStatus == eWaveStatus_Preparation)
+	local WaveCOM_MissionLogic_WaveCOM MissionState;
+	
+	if (NewGameState != none)
+		MissionState = WaveCOM_MissionLogic_WaveCOM(NewGameState.GetGameStateForObjectID(ObjectID));
+	if (MissionState == none)
+		MissionState = WaveCOM_MissionLogic_WaveCOM(`XCOMHISTORY.GetGameStateForObjectID(ObjectID));
+	if (MissionState.WaveStatus == eWaveStatus_Preparation)
 	{
 		if (NewGameState != none)
-			ModifyMissionTimerInState(true, CombatStartCountdown, "Prepare", "Next Wave in", Bad_Red, NewGameState);
+			ModifyMissionTimerInState(true, MissionState.CombatStartCountdown, "Prepare", "Next Wave in", Bad_Red, NewGameState);
 		else
-			ModifyMissionTimer(true, CombatStartCountdown, "Prepare", "Next Wave in", Bad_Red);
+			ModifyMissionTimer(true, MissionState.CombatStartCountdown, "Prepare", "Next Wave in", Bad_Red);
 	}
 	else
 	{
 		if (NewGameState != none)
-			ModifyMissionTimerInState(true, WaveNumber, "Wave Number", "In Progress",, NewGameState); // hide timer
+			ModifyMissionTimerInState(true, MissionState.WaveNumber, "Wave Number", "In Progress",, NewGameState); // hide timer
 		else
-			ModifyMissionTimer(true, WaveNumber, "Wave Number", "In Progress"); // hide timer
+			ModifyMissionTimer(true, MissionState.WaveNumber, "Wave Number", "In Progress"); // hide timer
 	}
 }
 
@@ -199,17 +228,19 @@ function EventListenerReturn Countdown(Object EventData, Object EventSource, XCo
 	local XComGameState_Item ItemState;
 	local array<XComGameState_Item> ItemStates;
 	local XComGameState_Unit UnitState;
+	local WaveCOM_MissionLogic_WaveCOM MissionState;
 
-	if (WaveStatus == eWaveStatus_Preparation)
+	MissionState = WaveCOM_MissionLogic_WaveCOM(`XCOMHISTORY.GetGameStateForObjectID(ObjectID));
+
+	if (MissionState.WaveStatus == eWaveStatus_Preparation)
 	{
-		CombatStartCountdown = CombatStartCountdown - 1;
-		`log("WaveCOM :: Counting Down - " @ CombatStartCountdown);
 
 		History = `XCOMHISTORY;
 	
 		NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Collect Wave Loot during Preparation");
 		NewMissionState = WaveCOM_MissionLogic_WaveCOM(NewGameState.ModifyStateObject(class'WaveCOM_MissionLogic_WaveCOM', ObjectID));
-		NewMissionState.CombatStartCountdown = CombatStartCountdown;
+		NewMissionState.CombatStartCountdown -= 1;
+		`log("WaveCOM :: Counting Down - " @ NewMissionState.CombatStartCountdown);
 		XComHQ = XComGameState_HeadquartersXCom(History.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
 		XComHQ = XComGameState_HeadquartersXCom(NewGameState.ModifyStateObject(class'XComGameState_HeadquartersXCom', XComHQ.ObjectID));
 
@@ -230,7 +261,7 @@ function EventListenerReturn Countdown(Object EventData, Object EventSource, XCo
 		}
 		`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
 
-		if (CombatStartCountdown == 0)
+		if (NewMissionState.CombatStartCountdown == 0)
 		{
 			InitiateWave();
 		}
@@ -242,76 +273,158 @@ function EventListenerReturn Countdown(Object EventData, Object EventSource, XCo
 	return ELR_NoInterrupt;
 }
 
+static function int GetForceLevel(int InWaveNumber)
+{
+	local int ForceLevel;
+	if (InWaveNumber > default.WaveCOMForceLevel.Length - 1)
+	{
+		ForceLevel = default.WaveCOMForceLevel[default.WaveCOMForceLevel.Length - 1];
+	}
+	else
+	{
+		ForceLevel = default.WaveCOMForceLevel[InWaveNumber];
+	}
+	ForceLevel = Clamp(ForceLevel, 1, 20);
+
+	return ForceLevel;
+}
+
+static function int GetSitRepChance(int InWaveNumber)
+{
+	local int Chance;
+	if (InWaveNumber > default.SitRepChance.Length - 1)
+	{
+		Chance = default.SitRepChance[default.SitRepChance.Length - 1];
+	}
+	else
+	{
+		Chance = default.SitRepChance[InWaveNumber];
+	}
+	Chance = Clamp(Chance, 0, 100);
+
+	`log(Chance $ "% to roll a sitrep",, 'WaveCOM');
+
+	return Chance;
+}
+
 function InitiateWave()
 {
 	local XComGameStateHistory History;
 	local XComGameState_BattleData BattleData;
 	local XComGameState_HeadquartersAlien AlienHQ;
+	local XComGameState_HeadquartersXCom XComHQ;
 	local XComGameState NewGameState;
 	local WaveCOM_MissionLogic_WaveCOM NewMissionState;
 	local array<WaveEncounter> WeightedStack;
 	local WaveEncounter Encounter;
-	local int Pods, Weighting, ForceLevel;
+	local int Pods, Weighting, MaxWeight, ForceLevel, idx;
 	local Vector ObjectiveLocation;
+	local SitRepWaveModifier SitRepMod;
+	local bool bRemoveNonOverrideEncounters;
 
 	History = `XCOMHISTORY;
 	NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Update Force Level");
 
-	WaveStatus = eWaveStatus_Combat;
-	WaveNumber = WaveNumber + 1;
+	NewMissionState = WaveCOM_MissionLogic_WaveCOM(NewGameState.ModifyStateObject(class'WaveCOM_MissionLogic_WaveCOM', ObjectID));
+	NewMissionState.WaveStatus = eWaveStatus_Combat;
+	NewMissionState.WaveNumber = NewMissionState.WaveNumber + 1;
+	NewMissionState.AliensDefeated = false;
 
 	BattleData = XComGameState_BattleData(History.GetSingleGameStateObjectForClass(class'XComGameState_BattleData'));
 	ObjectiveLocation = BattleData.MapData.ObjectiveLocation;
 	BattleData = XComGameState_BattleData(NewGameState.ModifyStateObject(class'XComGameState_BattleData', BattleData.ObjectID));
 
-	if (WaveNumber > WaveCOMForceLevel.Length - 1)
-	{
-		ForceLevel = WaveCOMForceLevel[WaveCOMForceLevel.Length - 1];
-	}
-	else
-	{
-		ForceLevel = WaveCOMForceLevel[WaveNumber];
-	}
-	ForceLevel = Clamp(ForceLevel, 1, 20);
+	ForceLevel = GetForceLevel(NewMissionState.WaveNumber);
 
 	AlienHQ = XComGameState_HeadquartersAlien(History.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersAlien'));
 	AlienHQ = XComGameState_HeadquartersAlien(NewGameState.ModifyStateObject(class'XComGameState_HeadquartersAlien', AlienHQ.ObjectID));
 	AlienHQ.ForceLevel = ForceLevel;
 
 	BattleData.SetForceLevel(ForceLevel);
+	BattleData.LostQueueStrength = 0; // Reset Lost counter
+	if (NewMissionState.WaveNumber > default.MaxLostWaves.Length - 1)
+	{
+		BattleData.LostMaxWaves = default.MaxLostWaves[default.MaxLostWaves.Length - 1];
+	}
+	else
+	{
+		BattleData.LostMaxWaves = default.MaxLostWaves[NewMissionState.WaveNumber];
+	}
+	BattleData.bLostSpawningDisabledViaKismet = false; // Re-enable lost spawning in case we want it.
+	BattleData.LostSpawningLevel = BattleData.SelectLostActivationCount();
+	
 	`SPAWNMGR.ForceLevel = ForceLevel;
 
-	NewMissionState = WaveCOM_MissionLogic_WaveCOM(NewGameState.ModifyStateObject(class'WaveCOM_MissionLogic_WaveCOM', ObjectID));
-	NewMissionState.WaveStatus = WaveStatus;
-	NewMissionState.WaveNumber = WaveNumber;
+	XComHQ = XComGameState_HeadquartersXCom(History.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
 	
-	if (WaveNumber > WaveCOMPodCount.Length - 1)
+	if (NewMissionState.WaveNumber > WaveCOMPodCount.Length - 1)
 	{
 		Pods = WaveCOMPodCount[WaveCOMPodCount.Length - 1];
 	}
 	else
 	{
-		Pods = WaveCOMPodCount[WaveNumber];
+		Pods = WaveCOMPodCount[NewMissionState.WaveNumber];
 	}
 
-	foreach WaveEncounters(Encounter)
+	foreach default.SitRepModifiers(SitRepMod)
 	{
-		if (Encounter.Earliest <= WaveNumber && Encounter.Latest >= WaveNumber && Encounter.Weighting > 0)
+		if ( XComHQ.TacticalGameplayTags.Find(SitRepMod.SitRep) != INDEX_NONE )
 		{
-			Weighting = Encounter.Weighting;
-			while (Weighting > 0 )
-			{
-				WeightedStack.AddItem(Encounter);
-				--Weighting;
-			}
+			Pods += SitRepMod.WaveCountMod;
 		}
 	}
 
 	`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
 
-	while (Pods > 0 )
+	MaxWeight = 0;
+
+	foreach default.WaveEncounters(Encounter)
 	{
-		Encounter = WeightedStack[Rand(WeightedStack.Length)];
+		if (Encounter.Earliest <= NewMissionState.WaveNumber && Encounter.Latest >= NewMissionState.WaveNumber && Encounter.Weighting > 0)
+		{
+			if( Encounter.IncludeTacticalTag != '' && XComHQ.TacticalGameplayTags.Find(Encounter.IncludeTacticalTag) == INDEX_NONE )
+			{
+				continue;
+			}
+
+			// if this pre-placed encounter depends on not having a tactical gameplay tag, and that tag is present, the encounter group will not spawn
+			if( Encounter.ExcludeTacticalTag != '' && XComHQ.TacticalGameplayTags.Find(Encounter.ExcludeTacticalTag) != INDEX_NONE )
+			{
+				continue;
+			}
+
+			if ( Encounter.TacticalTagOverride && Encounter.IncludeTacticalTag != '')
+			{
+				bRemoveNonOverrideEncounters = true;
+			}
+
+			WeightedStack.AddItem(Encounter);
+
+			MaxWeight += Encounter.Weighting;
+		}
+	}
+
+	if (bRemoveNonOverrideEncounters)
+	{
+		for (idx = 0; idx < WeightedStack.Length; idx++)
+		{
+			if (!WeightedStack[idx].TacticalTagOverride)
+			{
+				WeightedStack.Remove(idx, 1);
+				idx--;
+			}
+		}
+	}
+
+	while (Pods > 0 && WeightedStack.Length > 0)
+	{
+		idx = -1;
+		Weighting = Rand(MaxWeight);
+		while (Weighting >= 0 && WeightedStack.Length > idx + 1)
+		{
+			Weighting -= WeightedStack[++idx].Weighting;
+		}
+		Encounter = WeightedStack[idx];
 		class'XComGameState_NonstackingReinforcements'.static.InitiateReinforcements(
 			Encounter.EncounterID,
 			1, // FlareTimer
@@ -335,15 +448,63 @@ function InitiateWave()
 
 }
 
-function HandleTeamDead(XGPlayer LosingPlayer)
+function HandleTeamDead(array<XGPlayer> LosingPlayers, array<XGPlayer> AllPlayers)
 {
-	if (LosingPlayer.m_eTeam == eTeam_Alien)
+	local XComGameState NewGameState;
+	local XComGameState_BattleData BattleData;
+	local XGPlayer LosingPlayer, APlayer;
+	local WaveCOM_MissionLogic_WaveCOM MissionState, NewMissionState;
+	local bool NoAliensLeft, NoLostLeft;
+
+	MissionState = WaveCOM_MissionLogic_WaveCOM(`XCOMHISTORY.GetGameStateForObjectID(ObjectID));
+	BattleData = XComGameState_BattleData(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_BattleData'));
+	NoAliensLeft = true;
+	NoLostLeft = true;
+	foreach AllPlayers(APlayer)
 	{
-		BeginPreparationRound();
+		if (APlayer.m_eTeam == eTeam_Alien)
+		{
+			NoAliensLeft = MissionState.AliensDefeated;
+			`log("HandleTeamDead called - No aliens left?" @ NoAliensLeft,, 'WaveCOM');
+		}
+		else if (APlayer.m_eTeam == eTeam_TheLost)
+		{
+			NoLostLeft = BattleData.bLostSpawningDisabledViaKismet;
+			`log("HandleTeamDead called - No losts left?" @ NoLostLeft,, 'WaveCOM');
+		}
 	}
-	else if (LosingPlayer.m_eTeam == eTeam_XCom)
+
+	foreach LosingPlayers(LosingPlayer)
 	{
-		`TACTICALRULES.EndBattle(LosingPlayer, eUICombatLose_UnfailableGeneric, false);
+		`log("HandleTeamDead called: dying player" @ ETeam(LosingPlayer.m_eTeam),, 'WaveCOM');
+		if (LosingPlayer.m_eTeam == eTeam_Alien && !NewMissionState.AliensDefeated)
+		{
+			NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Update alien defeated");
+			NewMissionState = WaveCOM_MissionLogic_WaveCOM(NewGameState.ModifyStateObject(class'WaveCOM_MissionLogic_WaveCOM', ObjectID));
+			NewMissionState.AliensDefeated = true;
+			NoAliensLeft = true;
+			`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
+		}
+		else if (LosingPlayer.m_eTeam == eTeam_TheLost && !BattleData.bLostSpawningDisabledViaKismet)
+		{
+			// Stop Lost reinforcements
+			NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Update lost defeated");
+
+			BattleData = XComGameState_BattleData(NewGameState.ModifyStateObject(class'XComGameState_BattleData', BattleData.ObjectID));
+			BattleData.bLostSpawningDisabledViaKismet = true;
+			NoLostLeft = true;
+			`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
+		}
+		else if (LosingPlayer.m_eTeam == eTeam_XCom)
+		{
+			`TACTICALRULES.EndBattle(LosingPlayer, eUICombatLose_UnfailableGeneric, false);
+		}
+	}
+
+	if (NoLostLeft && NoAliensLeft && MissionState.WaveStatus == eWaveStatus_Combat)
+	{
+		`log("Alines and losts are dead, beginning prep phase",, 'WaveCOM');
+		BeginPreparationRound();
 	}
 }
 
@@ -356,12 +517,20 @@ function ShowWaveCompleteMessage(XComGameState VisualizeGameState)
 	local X2Action_CentralBanner BannerAction;
 	local XComGameState_HeadquartersXCom XComHQ, OldHQ;
 	local XComGameStateContext Context;
+	local WaveCOM_MissionLogic_WaveCOM MissionState;
+	
+	local X2SitRepTemplate SitRepTemplate;
+	local X2SitRepTemplateManager SitRepManager;
+	local int idx;
 
 	Context = VisualizeGameState.GetContext();
 
 	OldHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
 	OldHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetGameStateForObjectID(OldHQ.ObjectID, eReturnType_Reference, VisualizeGameState.HistoryIndex - 1));
 	XComHQ = XComGameState_HeadquartersXCom(VisualizeGameState.GetGameStateForObjectID(OldHQ.ObjectID));
+
+	MissionState = WaveCOM_MissionLogic_WaveCOM(`XCOMHISTORY.GetGameStateForObjectID(ObjectID));
+	SitRepManager = class'X2SitRepTemplateManager'.static.GetSitRepTemplateManager();
 
 	ActionMetadata = EmptyMetadata;
 	ActionMetadata.StateObject_OldState = OldHQ;
@@ -372,7 +541,7 @@ function ShowWaveCompleteMessage(XComGameState VisualizeGameState)
 	UIUpdateAction.DesiredHUDVisibility.bMessageBanner = true;
 
 	BannerAction = X2Action_CentralBanner(class'X2Action_CentralBanner'.static.AddToVisualizationTree(ActionMetadata, Context, false, ActionMetadata.LastActionAdded));
-	BannerAction.BannerText = "WAVE" @ WaveNumber @ "COMPLETE!";
+	BannerAction.BannerText = "WAVE" @ MissionState.WaveNumber @ "COMPLETE!";
 	BannerAction.BannerState = eUIState_Normal;
 
 	SoundAction = X2Action_StartStopSound(class'X2Action_StartStopSound'.static.AddToVisualizationTree(ActionMetadata, Context, false, ActionMetadata.LastActionAdded));
@@ -399,6 +568,24 @@ function ShowWaveCompleteMessage(XComGameState VisualizeGameState)
 	DelayAction.bIgnoreZipMode = true;
 	DelayAction.Duration = 3.0; 
 
+	for (idx = 0; idx < MissionState.ActiveSitReps.Length; idx++)
+	{
+		SitRepTemplate = SitRepManager.FindSitRepTemplate(MissionState.ActiveSitReps[idx]);
+		BannerAction = X2Action_CentralBanner(class'X2Action_CentralBanner'.static.AddToVisualizationTree(ActionMetadata, Context, false, ActionMetadata.LastActionAdded));
+		BannerAction.BannerText = "Next Wave SitRep:" @ SitRepTemplate.GetFriendlyName();
+		BannerAction.BannerState = eUIState_Bad;
+
+		SoundAction = X2Action_StartStopSound(class'X2Action_StartStopSound'.static.AddToVisualizationTree(ActionMetadata, Context, false, ActionMetadata.LastActionAdded));
+		SoundAction.Sound = new class'SoundCue';
+		SoundAction.Sound.AkEventOverride = AkEvent'SoundTacticalUI.TacticalUI_UnitFlagWarning';
+		SoundAction.bIsPositional = false;
+		SoundAction.WaitForCompletion = false;
+
+		DelayAction = X2Action_Delay(class'X2Action_Delay'.static.AddToVisualizationTree(ActionMetadata, Context, false, ActionMetadata.LastActionAdded));
+		DelayAction.bIgnoreZipMode = true;
+		DelayAction.Duration = 2.5; 
+	}
+
 	// 6a) Lower Special Event overlay
 	BannerAction = X2Action_CentralBanner(class'X2Action_CentralBanner'.static.AddToVisualizationTree(ActionMetadata, Context, false, ActionMetadata.LastActionAdded));
 	BannerAction.BannerText = "";
@@ -421,12 +608,16 @@ function CollectLootToHQ()
 	local X2ItemTemplate ItemTemplate;
 	local XComGameState_Unit UnitState;
 	local array<XComGameState_Unit> BondingSoldiers;
+	local WaveCOM_MissionLogic_WaveCOM MissionState;
+	local array<XComGameState_Unit> UnitToSyncVis;
 
 	local LootResults PendingAutoLoot;
 	local Name LootTemplateName;
 	local array<Name> RolledLoot;
 
 	History = `XCOMHISTORY;
+
+	MissionState = WaveCOM_MissionLogic_WaveCOM(History.GetGameStateForObjectID(ObjectID));
 	
 	KillCount = 0;
 	NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Collect Wave Loot");
@@ -534,7 +725,7 @@ function CollectLootToHQ()
 	}
 
 	SupplyReward = SupplyReward + WaveCOMWaveSupplyBonusBase;
-	SupplyReward = SupplyReward + Round(WaveNumber * WaveCOMWaveSupplyBonusMultiplier);
+	SupplyReward = SupplyReward + Round(MissionState.WaveNumber * WaveCOMWaveSupplyBonusMultiplier);
 
 	ItemTemplate = ItemTemplateManager.FindItemTemplate('Supplies');
 	ItemState = ItemTemplate.CreateInstanceFromTemplate(NewGameState);
@@ -561,8 +752,11 @@ function CollectLootToHQ()
 		if( UnitState.GetTeam() == eTeam_XCom && UnitState.IsSoldier() )
 		{
 			FullRefreshSoldier(UnitState.GetReference());
+			UnitToSyncVis.AddItem(UnitState);
 		}
 	}
+
+	class'WaveCOM_UIArmory_FieldLoadout'.static.SyncVisualizers(UnitToSyncVis);
 }
 
 static function FullRefreshSoldier(StateObjectReference UnitRef)
@@ -572,7 +766,6 @@ static function FullRefreshSoldier(StateObjectReference UnitRef)
 	local XGUnit Visualizer;
 	local XComPerkContentShared hPawnPerk;
 	local XComGameState_Unit UnitState;
-	local StateObjectReference AbilityReference;
 	local XComGameState_HeadquartersXCom XComHQ;
 	
 	UnitState = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(UnitRef.ObjectID));
@@ -581,11 +774,7 @@ static function FullRefreshSoldier(StateObjectReference UnitRef)
 	UnitState = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitRef.ObjectID));
 	XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
 	`log("~~~Cleaning and readding Abilities for" @ UnitRef.ObjectID @ UnitState.GetFullName(),, 'WaveCOM');
-	foreach UnitState.Abilities(AbilityReference)
-	{
-		NewGameState.RemoveStateObject(AbilityReference.ObjectID);
-	}
-	UnitState.Abilities.Length = 0;
+	class'WaveCOM_UIArmory_FieldLoadout'.static.ClearAbilities(UnitState, NewGameState);
 	Visualizer = XGUnit(UnitState.FindOrCreateVisualizer());
 	foreach Visualizer.GetPawn().arrTargetingPerkContent(hPawnPerk)
 	{
@@ -593,7 +782,7 @@ static function FullRefreshSoldier(StateObjectReference UnitRef)
 	}
 	Visualizer.GetPawn().StopPersistentPawnPerkFX(); // Remove all abilities visualizers
 
-	class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState, EffectContext);
+	class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState);
 	class'WaveCOM_UIArmory_FieldLoadout'.static.RefillInventory(NewGameState, UnitState);
 
 	`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
@@ -601,7 +790,7 @@ static function FullRefreshSoldier(StateObjectReference UnitRef)
 	UnitRef = UnitState.GetReference();
 	if (UnitState.IsAlive() && XComHQ.Squad.Find('ObjectID', UnitRef.ObjectID) != INDEX_NONE && !UnitState.bRemovedFromPlay)
 	{
-		class'WaveCOM_UIArmory_FieldLoadout'.static.UpdateUnit(UnitRef.ObjectID);
+		class'WaveCOM_UIArmory_FieldLoadout'.static.UpdateUnit(UnitRef.ObjectID, false);
 	}
 	`log("~~~Refersh complete for" @ UnitRef.ObjectID @ UnitState.GetFullName(),, 'WaveCOM');
 }
@@ -613,24 +802,33 @@ function BeginPreparationRound()
 	local XComGameState_BlackMarket BlackMarket;
 	local XComGameState_HeadquartersXCom XComHQ;
 	local XComGameState_Tech InspiredTechState, BreakthroughTechState;
+	local RollForSitRep SitRepInfo;
+	local X2SitRepTemplate SitRepTemplate;
+	local array<RollForSitRep> ValidSitReps;
+	local X2SitRepTemplateManager SitRepManager;
+	local int MaxWeighting, idx, Weighting;
+	local name TacticalTag;
+	local XComGameState_BattleData BattleData;
 
-	WaveStatus = eWaveStatus_Preparation;
-	CombatStartCountdown = 3;
 	CollectLootToHQ();
-	`log("BeginPreparationRound :: Loot COllected",, 'WaveCOM');
+	`log("BeginPreparationRound :: Loot Collected",, 'WaveCOM');
 
 	NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Collect Wave Loot during Preparation");
 	NewMissionState = WaveCOM_MissionLogic_WaveCOM(NewGameState.ModifyStateObject(class'WaveCOM_MissionLogic_WaveCOM', ObjectID));
-	NewMissionState.CombatStartCountdown = CombatStartCountdown;
-	NewMissionState.WaveStatus = WaveStatus;
+	NewMissionState.CombatStartCountdown = 3;
+	NewMissionState.WaveStatus = eWaveStatus_Preparation;
 
 	BlackMarket = XComGameState_BlackMarket(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_BlackMarket'));
 	BlackMarket = XComGameState_BlackMarket(NewGameState.ModifyStateObject(class'XComGameState_BlackMarket', BlackMarket.ObjectID));
 	BlackMarket.ResetBlackMarketGoods(NewGameState);
 	`log("BeginPreparationRound :: Black Market Reseted",, 'WaveCOM');
+
+	BattleData = XComGameState_BattleData(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_BattleData'));
+	BattleData = XComGameState_BattleData(NewGameState.ModifyStateObject(class'XComGameState_BattleData', BattleData.ObjectID));
 	
 	XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
 	XComHQ = XComGameState_HeadquartersXCom(NewGameState.ModifyStateObject(class'XComGameState_HeadquartersXCom', XComHQ.ObjectID));
+
 
 	// Remove Inspire Techs
 	if (XComHQ.CurrentInspiredTech.ObjectID != 0)
@@ -657,11 +855,55 @@ function BeginPreparationRound()
 	XComHQ.CheckForBreakthroughTechs(NewGameState);
 	`log("BeginPreparationRound :: Added Breakthrough" @ XComHQ.CurrentBreakthroughTech.ObjectID,, 'WaveCOM');
 
+	// Clear sitreps and roll for new ones.
+	SitRepManager = class'X2SitRepTemplateManager'.static.GetSitRepTemplateManager();
+	XComHQ.TacticalGameplayTags.Length = 0;
+	while (NewMissionState.ActiveSitReps.Length > 0)
+	{
+		if (BattleData.ActiveSitReps.Find(NewMissionState.ActiveSitReps[0]) != INDEX_NONE)
+		{
+			BattleData.ActiveSitReps.RemoveItem(NewMissionState.ActiveSitReps[0]);
+		}
+		NewMissionState.ActiveSitReps.Remove(0, 1);
+	}
+
+	foreach default.SitRepGenerateData(SitRepInfo)
+	{
+		SitRepTemplate = SitRepManager.FindSitRepTemplate(SitRepInfo.SitRepTemplateName);
+		if ( SitRepTemplate != none && 
+			(SitRepTemplate.MinimumForceLevel == 0 || SitRepTemplate.MinimumForceLevel <= GetForceLevel(NewMissionState.WaveNumber + 1)) &&
+			(SitRepTemplate.MaximumForceLevel == 0 || SitRepTemplate.MaximumForceLevel >= GetForceLevel(NewMissionState.WaveNumber + 1)))
+		{
+			ValidSitReps.AddItem(SitRepInfo);
+			MaxWeighting += SitRepInfo.Weight;
+			`log("SitRep" @ SitRepInfo.SitRepTemplateName @ "is valid",, 'WaveCOM');
+		}
+	}
+
+	if ( (ValidSitReps.Length > 0) && (Rand(100) < GetSitRepChance(NewMissionState.WaveNumber + 1)) )
+	{
+		idx = -1;
+		Weighting = Rand(MaxWeighting);
+		while (Weighting >= 0 && ValidSitReps.Length > idx + 1)
+		{
+			Weighting -= ValidSitReps[++idx].Weight;
+		}
+		SitRepTemplate = SitRepManager.FindSitRepTemplate(ValidSitReps[idx].SitRepTemplateName);
+		foreach SitRepTemplate.TacticalGameplayTags(TacticalTag)
+		{
+			XComHQ.TacticalGameplayTags.AddItem(TacticalTag);
+		}
+		NewMissionState.ActiveSitReps.AddItem(ValidSitReps[idx].SitRepTemplateName);
+		BattleData.ActiveSitReps.AddItem(ValidSitReps[idx].SitRepTemplateName);
+	}
+
 	`XEVENTMGR.TriggerEvent('WaveCOM_WaveEnd',,, NewGameState);
 
 	`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
 
-	//`XCOMHISTORY.ArchiveHistory("Wave" @ NewMissionState.WaveNumber);
+	BattleData.SetGlobalAbilityEnabled( 'PlaceEvacZone', false);
+
+	//`XCOMHISTORY.ArchiveHistory("Wave" @ NewMissionState.WaveNumber, true);
 
 	UpdateCombatCountdown();
 }

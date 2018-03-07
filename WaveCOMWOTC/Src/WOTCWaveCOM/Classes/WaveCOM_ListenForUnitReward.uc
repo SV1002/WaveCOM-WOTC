@@ -41,13 +41,13 @@ static function EventListenerReturn ResearchComplete(Object EventData, Object Ev
 		StrategyUnit = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(TechState.UnitRewardRef.ObjectID));
 		if (StrategyUnit != none)
 		{
-			NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Add reward unit to squad");
 			XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
 			if (XComHQ != none)
 			{
+				NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Add reward unit to squad");
 				XComHQ = XComGameState_HeadquartersXCom(NewGameState.ModifyStateObject(class'XComGameState_HeadquartersXCom', XComHQ.ObjectID));
-				XComHQ.Squad.AddItem(StrategyUnit.GetReference());
 				XComHQ.AddToCrew(NewGameState, StrategyUnit);
+				XComHQ.Squad.AddItem(StrategyUnit.GetReference());
 				`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
 			}
 			StrategyUnit = class'WaveCOM_UILoadoutButton'.static.AddStrategyUnitToBoard(StrategyUnit, `XCOMHISTORY);

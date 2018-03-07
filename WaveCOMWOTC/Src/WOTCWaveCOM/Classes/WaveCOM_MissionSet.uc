@@ -9,9 +9,12 @@ static function array<X2DataTemplate> CreateTemplates()
 	Templates.AddItem(AddMissionTemplate('WaveCOMGuerrillaHack'));
 	Templates.AddItem(AddMissionTemplate('WaveCOMGuerrillaRelay'));
 	Templates.AddItem(AddMissionTemplate('WaveCOMRaid'));
+	Templates.AddItem(AddMissionTemplate('WaveCOMRaidTrain'));
 	Templates.AddItem(AddMissionTemplate('WaveCOMCityRescue'));
 	Templates.AddItem(AddMissionTemplate('WaveCOMCityExtract'));
 	Templates.AddItem(AddMissionTemplate('WaveCOMSabotage'));
+	Templates.AddItem(AddMissionTemplate('WaveCOMCovertEscape'));
+	Templates.AddItem(AddMissionTemplate('WaveCOMRescueOps'));
 
     return Templates;
 }

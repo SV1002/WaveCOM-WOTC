@@ -105,3 +105,8 @@ simulated function RegenerateList()
 	GetItems();
 	PopulateData();
 }
+
+defaultproperties
+{
+	bConsumeMouseEvents = true;
+}

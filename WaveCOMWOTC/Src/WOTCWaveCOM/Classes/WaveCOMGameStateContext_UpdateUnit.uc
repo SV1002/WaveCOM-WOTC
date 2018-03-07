@@ -1,10 +1,20 @@
 // This is a combination of XComGameStateContext_EffectRemoved and XComGameStateContext_ChangeContainer
 // So we can remove effects and do many other stuffs on the same game state context
 //
-class WaveCOMGameStateContext_UpdateUnit extends XComGameStateContext_ChangeContainer;
+class WaveCOMGameStateContext_UpdateUnit extends XComGameStateContext;
 
 var array<StateObjectReference> RemovedEffects;
 var private XComGameState AssociatedGameState;
+
+var private XComGameState NewGameState;
+var string ChangeInfo;  //Fill out with info to help with debug display
+
+var Delegate<BuildVisualizationDelegate> BuildVisualizationFn; //Optional visualization function
+
+function bool Validate(optional EInterruptionStatus InInterruptionStatus)
+{
+	return true;
+}
 
 static function WaveCOMGameStateContext_UpdateUnit CreateEmptyChangeContainerUU(optional string ChangeDescription)
 {
@@ -18,24 +28,7 @@ static function WaveCOMGameStateContext_UpdateUnit CreateChangeStateUU(optional 
 {
 	local WaveCOMGameStateContext_UpdateUnit container;
 	container = CreateEmptyChangeContainerUU(ChangeDescription);
-	//if (UnitState != none)
-	//{
-		//foreach UnitState.AppliedEffects(EffectRef)
-		//{
-			//if (container.RemovedEffects.Find('ObjectID', EffectRef.ObjectID == INDEX_NONE)
-			//{
-				//container.RemovedEffects.AddItem(EffectRef);
-			//}
-		//}
-		//foreach UnitState.AffectedByEffects(EffectRef)
-		//{
-			//if (container.RemovedEffects.Find('ObjectID', EffectRef.ObjectID == INDEX_NONE)
-			//{
-				//container.RemovedEffects.AddItem(EffectRef);
-			//}
-		//}
-	//}
-	container.SetVisualizationFence(bSetVisualizationFence, VisFenceTimeout);
+	//container.SetVisualizationFence(bSetVisualizationFence, VisFenceTimeout);
 	container.AssociatedGameState = `XCOMHISTORY.CreateNewGameState(true, container);
 	return container;
 }
@@ -47,7 +40,10 @@ function XComGameState GetGameState()
 
 function AddEffectRemoved(XComGameState_Effect EffectState)
 {
-	RemovedEffects.AddItem(EffectState.GetReference());
+	if (RemovedEffects.Find('ObjectID', EffectState.ObjectID) == INDEX_NONE)
+	{
+		RemovedEffects.AddItem(EffectState.GetReference());
+	}
 }
 
 protected function ContextBuildVisualization()
@@ -114,4 +110,9 @@ protected function ContextBuildVisualization()
 			}
 		}
 	}
+}
+
+defaultproperties
+{
+	AssociatedPlayTiming=SPT_AfterSequential
 }

@@ -9,6 +9,7 @@ function bool OnUnlockOption(int iOption)
 	local XComGameState_Player XComPlayer;
 	local XComGameState_BattleData BattleData;
 	local WaveCOMGameStateContext_UpdateUnit EffectContext;
+	local array<XComGameState_Unit> UnitToSyncVis;
 
 	result = super.OnUnlockOption(iOption);
 
@@ -38,14 +39,22 @@ function bool OnUnlockOption(int iOption)
 					NewGameState.RemoveStateObject(AbilityReference.ObjectID);
 				}
 
-				class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState, EffectContext);
+				class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState);
 
 				`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
 			
-				class'WaveCOM_UIArmory_FieldLoadout'.static.UpdateUnit(UnitState.GetReference().ObjectID);
+				class'WaveCOM_UIArmory_FieldLoadout'.static.UpdateUnit(UnitState.GetReference().ObjectID, false);
+				UnitToSyncVis.AddItem(UnitState);
 			}
 		}
+	
+		class'WaveCOM_UIArmory_FieldLoadout'.static.SyncVisualizers(UnitToSyncVis);
 	}
 
 	return result;
+}
+
+defaultproperties
+{
+	bConsumeMouseEvents = true;
 }

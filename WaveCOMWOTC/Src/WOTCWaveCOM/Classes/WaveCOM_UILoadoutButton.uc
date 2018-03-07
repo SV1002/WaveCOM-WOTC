@@ -175,6 +175,10 @@ private function int UpdateDeployCost()
 private function EventListenerReturn RefreshTacHUD(Object EventData, Object EventSource, XComGameState NewGameState, Name InEventID, Object CallbackData)
 {
 	TacHUDScreen.ForceUpdate(-1);
+	TacHUDScreen.m_kPerks.UpdatePerks();
+	TacHUDScreen.m_kStatsContainer.LastVisibleActiveUnitID = -1; // Force refresh
+	TacHUDScreen.m_kStatsContainer.UpdateStats();
+
 	return ELR_NoInterrupt;
 }
 
@@ -197,6 +201,7 @@ private function EventListenerReturn OnWaveEnd(Object EventData, Object EventSou
 	ActionsPanel.Show();
 	RefreshRewardDecks();
 	RefreshCanRankUp();
+	TacHUDScreen.RefreshSitRep(); // Update sit rep at bottom left
 	return ELR_NoInterrupt;
 }
 
@@ -424,7 +429,7 @@ private function EventListenerReturn RefreshOneUnit(Object EventData, Object Eve
 			NewGameState.RemoveStateObject(AbilityReference.ObjectID);
 		}
 
-		class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState, EffectContext);
+		class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState);
 
 		`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
 			
@@ -443,6 +448,7 @@ private function EventListenerReturn RefreshAllUnits(Object EventData, Object Ev
 	local StateObjectReference AbilityReference;
 	local WaveCOMGameStateContext_UpdateUnit EffectContext;
 	local XComGameState_HeadquartersXCom XComHQ;
+	local array<XComGameState_Unit> UnitToSyncVis;
 			
 	XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
 
@@ -459,13 +465,16 @@ private function EventListenerReturn RefreshAllUnits(Object EventData, Object Ev
 				NewGameState.RemoveStateObject(AbilityReference.ObjectID);
 			}
 
-			class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState, EffectContext);
+			class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState);
 
 			`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
 			
-			class'WaveCOM_UIArmory_FieldLoadout'.static.UpdateUnit(UnitState.GetReference().ObjectID);
+			class'WaveCOM_UIArmory_FieldLoadout'.static.UpdateUnit(UnitState.GetReference().ObjectID, false);
+			UnitToSyncVis.AddItem(UnitState);
 		}
 	}
+	
+	class'WaveCOM_UIArmory_FieldLoadout'.static.SyncVisualizers(UnitToSyncVis);
 
 	return ELR_NoInterrupt;
 }
@@ -495,6 +504,7 @@ public function OpenBuyMenu(UIButton Button)
 	local UIInventory_BuildItems LoadedScreen;
 	UpdateResources();
 	LoadedScreen = TacHUDScreen.Movie.Pres.Spawn(class'UIInventory_BuildItems', TacHUDScreen.Movie.Pres);
+	LoadedScreen.bConsumeMouseEvents = true;
 	TacHUDScreen.Movie.Stack.Push(LoadedScreen, TacHUDScreen.Movie); 
 }
 
@@ -503,6 +513,7 @@ public function OpenStorage(UIButton Button)
 	local UIInventory_Storage LoadedScreen;
 	UpdateResources();
 	LoadedScreen = TacHUDScreen.Movie.Pres.Spawn(class'UIInventory_Storage', TacHUDScreen.Movie.Pres);
+	LoadedScreen.bConsumeMouseEvents = true;
 	TacHUDScreen.Movie.Stack.Push(LoadedScreen, TacHUDScreen.Movie); 
 }
 
@@ -666,7 +677,7 @@ public function OpenDeployMenu(UIButton Button)
 	// and add it to the board
 	if (StrategyUnit != none)
 	{
-		StrategyUnit.StartingRank = XComHQ.BonusTrainingRanks;
+		StrategyUnit.StartingRank = XComHQ.BonusTrainingRanks + 1; // Need +1 because the starting rank is calculated after GTS training
 
 		StrategyUnit = AddStrategyUnitToBoard(StrategyUnit, History);
 
@@ -796,6 +807,7 @@ static function XComGameState_Unit AddStrategyUnitToBoard(XComGameState_Unit Uni
 	local StateObjectReference ItemReference;
 	local XComGameState_Item ItemState;
 	local XComGameState_AIGroup NewGroupState;
+	local UIUnitFlag UnitFlags;
 
 	if(Unit == none)
 	{
@@ -872,6 +884,9 @@ static function XComGameState_Unit AddStrategyUnitToBoard(XComGameState_Unit Uni
 	}
 
 	`TACTICALRULES.SubmitGameState(NewGameState);
+
+	UnitFlags = `PRES.m_kUnitFlagManager.GetFlagForObjectID( Unit.ObjectID );
+	UnitFlags.RealizeFaction(Unit);
 
 	return Unit;
 }
