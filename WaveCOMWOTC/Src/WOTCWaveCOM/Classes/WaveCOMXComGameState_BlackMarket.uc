@@ -215,6 +215,22 @@ function SetUpForSaleItems(XComGameState NewGameState)
 		ForSaleItems.AddItem(ForSaleItem);
 	}
 
+	// Ability Points
+	ForSaleItem = EmptyForSaleItem;
+	RewardTemplate = X2RewardTemplate(StratMgr.FindStrategyElementTemplate('Reward_AbilityPoints'));
+	RewardState = RewardTemplate.CreateInstanceFromTemplate(NewGameState);
+	RewardState.GenerateReward(NewGameState);
+	ForSaleItem.RewardRef = RewardState.GetReference();
+
+	ForSaleItem.Title = RewardState.GetRewardString();
+	ForSaleItem.Cost = GetForSaleItemCost(PriceReductionScalar * 5.0f);
+	ForSaleItem.Desc = RewardState.GetBlackMarketString();
+	ForSaleItem.Image = RewardState.GetRewardImage();
+	ForSaleItem.CostScalars = GoodsCostScalars;
+	ForSaleItem.DiscountPercent = GoodsCostPercentDiscount;
+
+	ForSaleItems.AddItem(ForSaleItem);
+
 	// Elerium Core Rewards
 	ForSaleItem = EmptyForSaleItem;
 	RewardTemplate = X2RewardTemplate(StratMgr.FindStrategyElementTemplate('Reward_EleriumCore'));

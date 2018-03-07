@@ -231,7 +231,50 @@ function BuildVisualizationForUnitRefresh(XComGameState VisualizeGameState)
 	VisualizationMgr.GetAllLeafNodes(VisualizationMgr.BuildVisTree, LeafNodes);
 }
 
-static function UpdateUnit(int UnitID)
+static function SyncVisualizers(array<XComGameState_Unit> UnitStates)
+{
+	local WaveCOM_SyncVisualizerRuleset StateChangeContainer;
+	local XComGameState_Unit UnitState;
+	local StateObjectReference ItemReference;
+	local XComGameState NewGameState;
+	local XComGameState_Item ItemState;
+
+	StateChangeContainer = WaveCOM_SyncVisualizerRuleset(class'WaveCOM_SyncVisualizerRuleset'.static.CreateXComGameStateContext());
+	//StateChangeContainer.GameRuleType = eGameRule_ForceSyncVisualizers;
+	StateChangeContainer.SetAssociatedPlayTiming(SPT_AfterSequential);
+	NewGameState = `XCOMHISTORY.CreateNewGameState(true, StateChangeContainer);
+
+	foreach UnitStates(UnitState)
+	{
+		XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitState.ObjectID));
+
+		`log("Unit visualizer sync requested:" @ UnitState.ObjectID,, 'WaveCOM');
+
+		foreach UnitState.InventoryItems(ItemReference)
+		{
+			ItemState = XComGameState_Item(NewGameState.ModifyStateObject(class'XComGameState_Item', ItemReference.ObjectID)); // Add to GameState so the visualizers is sync'd
+			if (ItemState.CosmeticUnitRef.ObjectID > 0)
+			{
+				XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', ItemState.CosmeticUnitRef.ObjectID));
+			}
+		}
+	}
+	
+	`XEVENTMGR.TriggerEvent('RefreshTacHUD',,, NewGameState);
+	
+	`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
+}
+
+static function ClearAbilities(XComGameState_Unit UnitState, XComGameState NewGameState)
+{
+	while (UnitState.Abilities.Length > 0)
+	{
+		NewGameState.RemoveStateObject(UnitState.Abilities[0].ObjectID);
+		UnitState.Abilities.Remove(0, 1);
+	}
+}
+
+static function UpdateUnit(int UnitID, optional bool bSyncVisualizer = true)
 {
 	local XComGameState NewGameState;
 	local XComGameState_Unit Unit;
@@ -239,21 +282,17 @@ static function UpdateUnit(int UnitID)
 	local XGWeapon WeaponVis;
 	local XComWeapon WeaponMeshVis;
 	local StateObjectReference ItemReference;
-	local StateObjectReference AbilityReference;
 	local XComGameState_Item ItemState;
 	local XComPerkContentShared hPawnPerk;
-	local XComGameStateContext_TacticalGameRule StateChangeContainer;
+	local array<XComGameState_Unit> Units;
+	local UIUnitFlag UnitFlags;
 
 	NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Refresh Inventory");
 
 	Unit = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitID));
 
 	`log("Cleaning Abilities");
-	foreach Unit.Abilities(AbilityReference)
-	{
-		NewGameState.RemoveStateObject(AbilityReference.ObjectID);
-	}
-	Unit.Abilities.Length = 0;
+	ClearAbilities(Unit, NewGameState);
 	Visualizer = XGUnit(Unit.FindOrCreateVisualizer());
 	foreach Visualizer.GetPawn().arrTargetingPerkContent(hPawnPerk)
 	{
@@ -275,18 +314,15 @@ static function UpdateUnit(int UnitID)
 	`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
 
 	`log("GameState Submitted",, 'WaveCOM');
-	
-	StateChangeContainer = XComGameStateContext_TacticalGameRule(class'XComGameStateContext_TacticalGameRule'.static.CreateXComGameStateContext());
-	StateChangeContainer.GameRuleType = eGameRule_ForceSyncVisualizers;
-	StateChangeContainer.SetAssociatedPlayTiming(SPT_AfterSequential);
-	NewGameState = `XCOMHISTORY.CreateNewGameState(true, StateChangeContainer);
+
+	NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Initializing abilities");
 	Unit = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitID));
 
 	foreach Unit.InventoryItems(ItemReference)
 	{
-		ItemState = XComGameState_Item(NewGameState.ModifyStateObject(class'XComGameState_Item', ItemReference.ObjectID)); // Add to GameState so the visualizers is sync'd
 		if( ItemState.OwnerStateObject.ObjectID == Unit.ObjectID )
 		{
+			ItemState = XComGameState_Item(NewGameState.ModifyStateObject(class'XComGameState_Item', ItemReference.ObjectID));
 			ItemState.CreateCosmeticItemUnit(NewGameState);
 			WeaponVis = XGWeapon(ItemState.GetVisualizer());
 			if (WeaponVis != None && ItemState.GetMyTemplate().iItemSize > 0)
@@ -319,46 +355,48 @@ static function UpdateUnit(int UnitID)
 
 	`log("Unit is updated:" @ UnitID,, 'WaveCOM');
 
-	`XEVENTMGR.TriggerEvent('RefreshTacHUD',,, NewGameState);
-
 	`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
+
+	if (bSyncVisualizer)
+	{
+		Units.AddItem(Unit);
+		SyncVisualizers(Units);
+	}
+
+	UnitFlags = `PRES.m_kUnitFlagManager.GetFlagForObjectID( Unit.ObjectID );
+	UnitFlags.RealizeFaction(Unit);
 }
 
-static function UpdateUnitState(int UnitID, XComGameState NewGameState)
-{
-	local XComGameState_Unit Unit;
-	local StateObjectReference AbilityReference;
-	local XGUnit Visualizer;
-	local XComPerkContentShared hPawnPerk;
-
-	Unit = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitID));
-
-	`log("Cleaning Abilities");
-	foreach Unit.Abilities(AbilityReference)
-	{
-		NewGameState.RemoveStateObject(AbilityReference.ObjectID);
-	}
-	Unit.Abilities.Length = 0;
-	Visualizer = XGUnit(Unit.FindOrCreateVisualizer());
-	Visualizer.GetPawn().StopPersistentPawnPerkFX(); // Remove all abilities visualizers
-	foreach Visualizer.GetPawn().arrTargetingPerkContent(hPawnPerk)
-	{
-		hPawnPerk.RemovePerkTarget( XGUnit(Visualizer.GetPawn().m_kGameUnit) );
-	}
-
-	CleanUpStats(NewGameState, Unit);
-
-	MergeAmmoAsNeeded(NewGameState, Unit);
-
-	`TACTICALRULES.InitializeUnitAbilities(NewGameState, Unit);
-	if (Unit.FindAbility('Phantom').ObjectID > 0)
-	{
-		Unit.EnterConcealmentNewGameState(NewGameState);
-	}
-
-	if (XComGameStateContext_TacticalGameRule(NewGameState.GetContext()) != none)
-		XComGameStateContext_TacticalGameRule(NewGameState.GetContext()).UnitRef = Unit.GetReference();
-}
+//static function UpdateUnitState(int UnitID, XComGameState NewGameState)
+//{
+	//local XComGameState_Unit Unit;
+	//local XGUnit Visualizer;
+	//local XComPerkContentShared hPawnPerk;
+//
+	//Unit = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitID));
+//
+	//`log("Cleaning Abilities");
+	//ClearAbilities(Unit, NewGameState);
+	//Visualizer = XGUnit(Unit.FindOrCreateVisualizer());
+	//Visualizer.GetPawn().StopPersistentPawnPerkFX(); // Remove all abilities visualizers
+	//foreach Visualizer.GetPawn().arrTargetingPerkContent(hPawnPerk)
+	//{
+		//hPawnPerk.RemovePerkTarget( XGUnit(Visualizer.GetPawn().m_kGameUnit) );
+	//}
+//
+	//CleanUpStats(NewGameState, Unit);
+//
+	//MergeAmmoAsNeeded(NewGameState, Unit);
+//
+	//`TACTICALRULES.InitializeUnitAbilities(NewGameState, Unit);
+	//if (Unit.FindAbility('Phantom').ObjectID > 0)
+	//{
+		//Unit.EnterConcealmentNewGameState(NewGameState);
+	//}
+//
+	//if (XComGameStateContext_TacticalGameRule(NewGameState.GetContext()) != none)
+		//XComGameStateContext_TacticalGameRule(NewGameState.GetContext()).UnitRef = Unit.GetReference();
+//}
 
 simulated function OnCancel()
 {
@@ -438,7 +476,7 @@ function Push_UIArmory_Promotion(StateObjectReference UnitRef, optional bool bIn
 	{
 		XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom', true));
 		XComHQ = XComGameState_HeadquartersXCom(NewGameState.ModifyStateObject(class'XComGameState_HeadquartersXCom', XComHQ.ObjectID));
-		CleanUpStats(NewGameState, UnitState, EffectContext);
+		CleanUpStats(NewGameState, UnitState);
 		UnitState.RankUpSoldier(NewGameState, XComHQ.SelectNextSoldierClass());	
 		if (UnitState.GetRank() == 1)
 		{
@@ -533,6 +571,8 @@ simulated function PsiPromoteDialogCallback(name eAction, UICallbackData xUserDa
 	local XComGameState_Item InventoryItem;
 	local array<XComGameState_Item> InventoryItems;
 	local XGItem ItemVisualizer;
+	local SoldierRankAbilities OldRankAbilities, NewFirstRankAbilities;
+	local int RandSkillIndex;
 
 	CallbackData = UICallbackData_StateObjectReference(xUserData);
 
@@ -546,7 +586,27 @@ simulated function PsiPromoteDialogCallback(name eAction, UICallbackData xUserDa
 		UnitState = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitInfo.UnitRef.ObjectID));
 		
 		UnitState.RankUpSoldier(NewGameState, 'PsiOperative');
-		UnitState.BuySoldierProgressionAbility(NewGameState, `SYNC_RAND(2), `SYNC_RAND(2));
+		// Reshuffle psi abilities to make it look nice on the promotion screen
+		OldRankAbilities = UnitState.AbilityTree[1];
+		UnitState.AbilityTree[0].Abilities.AddItem(OldRankAbilities.Abilities[0]); // Move Insanity to rank 1
+		UnitState.AbilityTree.Remove(1, 1);
+		NewFirstRankAbilities = OldRankAbilities;
+		NewFirstRankAbilities.Abilities.Remove(0, 1); // new first rank no longer have Insanity
+		UnitState.AbilityTree.InsertItem(0, NewFirstRankAbilities);
+		// Move Schism to rank 3
+		UnitState.AbilityTree[2].Abilities.AddItem(UnitState.AbilityTree[4].Abilities[0]);
+		// Remove Schism from Rank 5
+		UnitState.AbilityTree[4].Abilities.Remove(0, 1);
+		// Get random skill!
+		RandSkillIndex = `SYNC_RAND(4);
+		if (RandSkillIndex == 0)
+		{
+			UnitState.BuySoldierProgressionAbility(NewGameState, 0, 0);
+		}
+		else
+		{
+			UnitState.BuySoldierProgressionAbility(NewGameState, 1, RandSkillIndex - 1);
+		}
 
 		if (UnitState.GetRank() == 1) // They were just promoted to Initiate
 		{
@@ -577,35 +637,39 @@ simulated function PsiPromoteDialogCallback(name eAction, UICallbackData xUserDa
 }
 
 // Context is optional, but not providing it will stop visualizations from executing, causing bugs on some effects removal
-static function CleanUpStats(XComGameState NewGameState, XComGameState_Unit UnitState, optional WaveCOMGameStateContext_UpdateUnit Context)
+static function CleanUpStats(XComGameState NewGameState, XComGameState_Unit UnitState)
 {
 	local XComGameState_Effect EffectState;
+	local WaveCOMGameStateContext_UpdateUnit Context;
 
-	while ( UnitState.AppliedEffectNames.Length > 0)
+	Context = WaveCOMGameStateContext_UpdateUnit(NewGameState.GetContext());
+
+	while ( UnitState.AppliedEffects.Length > 0)
 	{
 		EffectState = XComGameState_Effect( `XCOMHISTORY.GetGameStateForObjectID( UnitState.AppliedEffects[ 0 ].ObjectID ) );
 		if (EffectState != None)
 		{
-			EffectState.RemoveEffect(NewGameState, NewGameState, true); //Cleansed
-			if (Context != none && Context.RemovedEffects.Find('ObjectID', UnitState.AppliedEffects[ 0 ].ObjectID) == INDEX_NONE)
+			if (Context != none)
+			{
 				Context.AddEffectRemoved(EffectState);
+			}
+			EffectState.RemoveEffect(NewGameState, NewGameState, true); //Cleansed
 		}
 	}
 	
-	if (Context != none)
+	while ( UnitState.AffectedByEffects.Length > 0)
 	{
-		while ( UnitState.AffectedByEffectNames.Length > 0)
+		EffectState = XComGameState_Effect( `XCOMHISTORY.GetGameStateForObjectID( UnitState.AffectedByEffects[ 0 ].ObjectID ) );
+		if (EffectState != None)
 		{
-			EffectState = XComGameState_Effect( `XCOMHISTORY.GetGameStateForObjectID( UnitState.AffectedByEffects[ 0 ].ObjectID ) );
-			if (EffectState != None)
+			if (Context != none)
 			{
-				EffectState.RemoveEffect(NewGameState, NewGameState, true); //Cleansed
-				if (Context != none && Context.RemovedEffects.Find('ObjectID', UnitState.AffectedByEffects[ 0 ].ObjectID) == INDEX_NONE)
-					Context.AddEffectRemoved(EffectState);
+				Context.AddEffectRemoved(EffectState);
 			}
+			EffectState.RemoveEffect(NewGameState, NewGameState, true); //Cleansed
 		}
-		`log (" WaveCOM Fieldloadout :: Removed effect states in context:" @ Context.RemovedEffects.Length);
 	}
+	`log (" WaveCOM Fieldloadout :: Removed effect states in context:" @ Context.RemovedEffects.Length);
 }
 
 simulated function OnReceiveFocus()
@@ -667,7 +731,7 @@ simulated function InitArmory(StateObjectReference UnitRef, optional name DispEv
 {
 	UnitReference = UnitRef;
 	ResetUnitState();	
-	bUseNavHelp = class'XComGameState_HeadquartersXCom'.static.IsObjectiveCompleted('T0_M2_WelcomeToArmory');
+	bUseNavHelp = true;
 	super(UIArmory).InitArmory(UnitRef, DispEvent, SoldSpawnEvent, NavBackEvent, HideEvent, RemoveEvent, bInstant, InitCheckGameState);
 
 	List = Spawn(class'UIList', self).InitList('armoryMenuList');
@@ -677,6 +741,12 @@ simulated function InitArmory(StateObjectReference UnitRef, optional name DispEv
 	PopulateData();
 
 	CheckForCustomizationPopup();
+	if (NavHelp == none)
+	{
+		NavHelp = Spawn(class'UINavigationHelp', self).InitNavHelp();
+		NavHelp.AnimateIn(0);
+		UpdateNavHelp();
+	}
 }
 
 static function RefillInventory(XComGameState NewGameState, XComGameState_Unit Unit)
@@ -858,7 +928,7 @@ simulated function ResetUnitState()
 
 	Unit = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitReference.ObjectID));
 
-	CleanUpStats(NewGameState, Unit, EffectContext);
+	CleanUpStats(NewGameState, Unit);
 
 	// Remerge Inventory
 	RefillInventory(NewGameState, Unit);
@@ -924,7 +994,10 @@ simulated function PrevSoldier()
 
 	idx = XComHQ.Squad.Find('ObjectID', UnitReference.ObjectID);
 	if (idx == INDEX_NONE)
+	{
+		`log(UnitReference.ObjectID @ "is not a part of XCOM Squad",, 'WaveCOM');
 		return;
+	}
 	idx = (idx + XComHQ.Squad.Length - 1) % XComHQ.Squad.Length;
 
 	CycleToSoldierNew(XComHQ.Squad[idx]);
@@ -944,7 +1017,10 @@ simulated function NextSoldier()
 
 	idx = XComHQ.Squad.Find('ObjectID', UnitReference.ObjectID);
 	if (idx == INDEX_NONE)
+	{
+		`log(UnitReference.ObjectID @ "is not a part of XCOM Squad",, 'WaveCOM');
 		return;
+	}
 	idx = (idx + XComHQ.Squad.Length + 1) % XComHQ.Squad.Length;
 
 	CycleToSoldierNew(XComHQ.Squad[idx]);
@@ -994,6 +1070,50 @@ simulated function UpdateNavHelp()
 
 		NavHelp.Show();
 	}
+}
+
+simulated function bool OnUnrealCommand(int cmd, int arg)
+{
+	local bool bHandled;
+
+	//bsg-jneal (5.23.17): no input when not focused
+	if(!bIsFocused)
+	{
+		return false;
+	}
+	//bsg-jneal (5.23.17): end
+
+	if (AbilityInfoScreen != none && Movie.Pres.ScreenStack.IsInStack(class'UIAbilityInfoScreen'))
+	{
+		if (AbilityInfoScreen.OnUnrealCommand(cmd, arg))
+		{
+			return true;
+		}
+	}
+
+	if ( !CheckInputIsReleaseOrDirectionRepeat(cmd, arg) )
+		return false;
+
+	bHandled = true;
+
+	switch( cmd )
+	{
+		case class'UIUtilities_Input'.const.FXS_MOUSE_5:
+		case class'UIUtilities_Input'.const.FXS_KEY_TAB:
+		case class'UIUtilities_Input'.const.FXS_BUTTON_RBUMPER:
+			NextSoldier();
+			break;
+		case class'UIUtilities_Input'.const.FXS_MOUSE_4:
+		case class'UIUtilities_Input'.const.FXS_KEY_LEFT_SHIFT:
+		case class'UIUtilities_Input'.const.FXS_BUTTON_LBUMPER:
+			PrevSoldier();
+			break;
+		default:
+			bHandled = false;
+			break;
+	}
+
+	return bHandled || super.OnUnrealCommand(cmd, arg);
 }
 
 defaultproperties

@@ -1,10 +1,94 @@
-class WaveCOM_UIPsiTraining extends UIArmory_Promotion config(WaveCOM);
+class WaveCOM_UIPsiTraining extends UIArmory_PromotionHero config(WaveCOM);
 
 var config array<int> InitialPsiCost;
 
 var config array<int> PsiAbilityCost;
 var config array<int> PsiAbilityRankCostIncrease;
 var config int PsiAbilityCostIncreasePerTotalAbility;
+
+simulated function InitPromotion(StateObjectReference UnitRef, optional bool bInstantTransition)
+{
+	local UIArmory_PromotionHeroColumn Column;
+	local XComGameState_Unit Unit; // bsg-nlong (1.25.17): Used to determine which column we should start highlighting
+
+	// If the AfterAction screen is running, let it position the camera
+	AfterActionScreen = UIAfterAction(Movie.Stack.GetScreen(class'UIAfterAction'));
+	if (AfterActionScreen != none)
+	{
+		bAfterActionPromotion = true;
+		PawnLocationTag = AfterActionScreen.GetPawnLocationTag(UnitRef, "Blueprint_AfterAction_HeroPromote");
+		CameraTag = AfterActionScreen.GetPromotionBlueprintTag(UnitRef);
+		DisplayTag = name(AfterActionScreen.GetPromotionBlueprintTag(UnitRef));
+	}
+	else
+	{
+		CameraTag = string(default.DisplayTag);
+		DisplayTag = default.DisplayTag;
+	}
+
+	// Don't show nav help during tutorial, or during the After Action sequence.
+	bUseNavHelp = class'XComGameState_HeadquartersXCom'.static.IsObjectiveCompleted('T0_M2_WelcomeToArmory') || Movie.Pres.ScreenStack.IsInStack(class'UIAfterAction');
+
+	super(UIArmory_Promotion).InitArmory(UnitRef, , , , , , bInstantTransition);
+	
+	Column = Spawn(class'WaveCOM_UIArmory_PromotionHeroColumn', self);
+	Column.MCName = 'rankColumn0';
+	Column.InitPromotionHeroColumn(0);
+	Columns.AddItem(Column);
+
+	Column = Spawn(class'WaveCOM_UIArmory_PromotionHeroColumn', self);
+	Column.MCName = 'rankColumn1';
+	Column.InitPromotionHeroColumn(1);
+	Columns.AddItem(Column);
+
+	Column = Spawn(class'WaveCOM_UIArmory_PromotionHeroColumn', self);
+	Column.MCName = 'rankColumn2';
+	Column.InitPromotionHeroColumn(2);
+	Columns.AddItem(Column);
+
+	Column = Spawn(class'WaveCOM_UIArmory_PromotionHeroColumn', self);
+	Column.MCName = 'rankColumn3';
+	Column.InitPromotionHeroColumn(3);
+	Columns.AddItem(Column);
+
+	Column = Spawn(class'WaveCOM_UIArmory_PromotionHeroColumn', self);
+	Column.MCName = 'rankColumn4';
+	Column.InitPromotionHeroColumn(4);
+	Columns.AddItem(Column);
+
+	Column = Spawn(class'WaveCOM_UIArmory_PromotionHeroColumn', self);
+	Column.MCName = 'rankColumn5';
+	Column.InitPromotionHeroColumn(5);
+	Columns.AddItem(Column);
+
+	Column = Spawn(class'WaveCOM_UIArmory_PromotionHeroColumn', self);
+	Column.MCName = 'rankColumn6';
+	Column.InitPromotionHeroColumn(6);
+	Columns.AddItem(Column);
+
+	PopulateData();
+
+	DisableNavigation(); // bsg-nlong (1.25.17): This and the column panel will have to use manual naviation, so we'll disable the navigation here
+
+	MC.FunctionVoid("AnimateIn");
+
+	// bsg-nlong (1.25.17): Focus a column so the screen loads with an ability highlighted
+	if( `ISCONTROLLERACTIVE )
+	{
+		Unit = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(UnitReference.ObjectID));
+		if( Unit != none )
+		{
+			m_iCurrentlySelectedColumn = m_iCurrentlySelectedColumn;
+		}
+		else
+		{
+			m_iCurrentlySelectedColumn = 0;
+		}
+
+		Columns[m_iCurrentlySelectedColumn].OnReceiveFocus();
+	}
+	// bsg-nlong (1.25.17): end
+}
 
 static function int GetNewPsiCost()
 {
@@ -32,256 +116,249 @@ static function int GetNewPsiCost()
 
 simulated function PopulateData()
 {
-	local int i, maxRank;
-	local string AbilityIcon1, AbilityIcon2, AbilityName1, AbilityName2, HeaderString;
-	local bool bHasAbility1, bHasAbility2;
 	local XComGameState_Unit Unit;
 	local X2SoldierClassTemplate ClassTemplate;
-	local X2AbilityTemplate AbilityTemplate1, AbilityTemplate2;
-	local X2AbilityTemplateManager AbilityTemplateManager;
-	local array<SoldierClassAbilityType> AbilityTree;
-	local UIArmory_PromotionItem Item;
-
-	local bool GotAllAbilities, bHasShownSoulfire;
-
-	// We don't need to clear the list, or recreate the pawn here -sbatista
-	//super.PopulateData();
+	local UIArmory_PromotionHeroColumn Column;
+	local string HeaderString, rankIcon, classIcon;
+	local int iRank, maxRank;
+	local XComGameState_ResistanceFaction FactionState;
+	local XComGameState_HeadquartersXCom XComHQ;
+	
 	Unit = GetUnit();
 	ClassTemplate = Unit.GetSoldierClassTemplate();
-	AbilityTree = Unit.GetEarnedSoldierAbilities();
+
+	FactionState = Unit.GetResistanceFaction();
+	
+	rankIcon = class'UIUtilities_Image'.static.GetRankIcon(Unit.GetRank(), ClassTemplate.DataName);
+	classIcon = ClassTemplate.IconImage;
 
 	HeaderString = m_strAbilityHeader;
+	if (Unit.GetRank() != 1 && Unit.HasAvailablePerksToAssign())
+	{
+		HeaderString = m_strSelectAbility;
+	}
 
-	AS_SetTitle(ClassTemplate.IconImage, HeaderString, ClassTemplate.LeftAbilityTreeTitle, ClassTemplate.RightAbilityTreeTitle, Caps(ClassTemplate.DisplayName));
-	
+	XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
+
+	AS_SetRank(rankIcon);
+	AS_SetClass(classIcon);
+	AS_SetFaction(FactionState.GetFactionIcon());
+
+	AS_SetHeaderData(Caps(FactionState.GetFactionTitle()), Caps(Unit.GetName(eNameType_FullNick)), HeaderString, "", Caps(class'UIUtilities_Strategy'.static.GetResourceDisplayName('Supplies', 2)));
+	AS_SetAPData(0, XComHQ.GetSupplies()); // Replace with Supplies
+	AS_SetCombatIntelData(Caps(class'X2ExperienceConfig'.static.GetRankName(Unit.GetRank(), ClassTemplate.DataName))); // Replace with unit rank
+	AS_SetPathLabels(m_strBranchesLabel, ClassTemplate.AbilityTreeTitles[0], ClassTemplate.AbilityTreeTitles[1], ClassTemplate.AbilityTreeTitles[2], ClassTemplate.AbilityTreeTitles[3]);
+
 	maxRank = class'X2ExperienceConfig'.static.GetMaxRank();
-	AbilityTemplateManager = class'X2AbilityTemplateManager'.static.GetAbilityTemplateManager();
 
-	if (ClassRowItem == none)
+	for (iRank = 0; iRank < (maxRank - 1); ++iRank)
 	{
-		ClassRowItem = Spawn(class'UIArmory_PromotionItem', self);
-		ClassRowItem.MCName = 'classRow';
-		ClassRowItem.InitPromotionItem(0);
-		ClassRowItem.OnMouseEventDelegate = OnClassRowMouseEvent;
+		Column = Columns[iRank];
+		UpdateAbilityIcons(Column);
 
-		if (Unit.GetRank() == 1)
-			ClassRowItem.OnReceiveFocus();
+		Column.AS_SetData(false, m_strNewRank, class'UIUtilities_Image'.static.GetRankIcon(iRank+1, ClassTemplate.DataName), Caps(class'X2ExperienceConfig'.static.GetRankName(iRank+1, ClassTemplate.DataName)));
 	}
 
-	ClassRowItem.ClassName = ClassTemplate.DataName;
-	ClassRowItem.SetRankData(class'UIUtilities_Image'.static.GetRankIcon(1, ClassTemplate.DataName), Caps(class'X2ExperienceConfig'.static.GetRankName(1, ClassTemplate.DataName)));
-		
-	AbilityTree = Unit.GetRankAbilities(0);
-	AbilityTemplate1 = AbilityTemplateManager.FindAbilityTemplate(AbilityTree[0].AbilityName);
-	AbilityTemplate2 = AbilityTemplateManager.FindAbilityTemplate(AbilityTree[1].AbilityName);
-
-	bHasAbility1 = Unit.HasSoldierAbility(AbilityTemplate1.DataName);
-	bHasAbility2 = Unit.HasSoldierAbility(AbilityTemplate2.DataName);
-	GotAllAbilities = bHasAbility1 && bHasAbility2;
-	if (bHasAbility1 && AbilityTemplate1 != none)
-	{
-		bHasShownSoulfire = true; // You already have soulfire, hide it from the menu so you can still learn it.
-		ClassRowItem.AbilityName2 = AbilityTemplate2.DataName;
-		AbilityName2 = Caps(AbilityTemplate2.LocFriendlyName);
-		AbilityIcon2 = AbilityTemplate2.IconImage;
-	}
-	else if(bHasAbility2 && AbilityTemplate2 != none && !bHasShownSoulfire)
-	{
-		bHasShownSoulfire = true;
-		AbilityTemplate2 = AbilityTemplateManager.FindAbilityTemplate('Soulfire');
-		ClassRowItem.AbilityName2 = AbilityTemplate2.DataName;
-		AbilityName2 = Caps(AbilityTemplate2.LocFriendlyName);
-		AbilityIcon2 = AbilityTemplate2.IconImage;
-	}
-	else
-	{
-		ClassRowItem.AbilityName2 = AbilityTemplate2.DataName;
-		AbilityName2 = Caps(AbilityTemplate2.LocFriendlyName);
-		AbilityIcon2 = AbilityTemplate2.IconImage;
-	}
-
-	ClassRowItem.SetEquippedAbilities(true, true);
-	ClassRowItem.SetAbilityData("", "", AbilityIcon2, AbilityName2);
-	ClassRowItem.SetClassData(ClassTemplate.IconImage, Caps(ClassTemplate.DisplayName));
-	ClassRowItem.SetPromote(!GotAllAbilities, !bHasAbility1, !bHasAbility2);
-
-	for (i = 2; i < maxRank; ++i)
-	{
-		Item = UIArmory_PromotionItem(List.GetItem(i - 2));
-		if (Item == none)
-			Item = UIArmory_PromotionItem(List.CreateItem(class'UIArmory_PromotionItem')).InitPromotionItem(i - 1);
-
-		Item.Rank = i - 1;
-		Item.ClassName = ClassTemplate.DataName;
-		Item.SetRankData(class'UIUtilities_Image'.static.GetRankIcon(i, ClassTemplate.DataName), Caps(class'X2ExperienceConfig'.static.GetRankName(i, ClassTemplate.DataName)));
-
-		AbilityTree = Unit.GetRankAbilities(Item.Rank);
-		AbilityTemplate1 = AbilityTemplateManager.FindAbilityTemplate(AbilityTree[0].AbilityName);
-		AbilityTemplate2 = AbilityTemplateManager.FindAbilityTemplate(AbilityTree[1].AbilityName);
-
-		bHasAbility1 = Unit.HasSoldierAbility(AbilityTemplate1.DataName);
-		bHasAbility2 = Unit.HasSoldierAbility(AbilityTemplate2.DataName);
-
-		if (bHasAbility1 && !bHasShownSoulfire) // Replace the first skill we see with soulfire
-		{
-			AbilityTemplate1 = AbilityTemplateManager.FindAbilityTemplate('Soulfire');
-			bHasShownSoulfire = true;
-		}
-		else if (bHasAbility2 && !bHasShownSoulfire)
-		{
-			AbilityTemplate2 = AbilityTemplateManager.FindAbilityTemplate('Soulfire');
-			bHasShownSoulfire = true;
-		}
-
-		if (AbilityTemplate1 != none)
-		{
-			Item.AbilityName1 = AbilityTemplate1.DataName;
-			AbilityName1 = Caps(AbilityTemplate1.LocFriendlyName);
-			AbilityIcon1 = AbilityTemplate1.IconImage;
-		}
-
-		if (AbilityTemplate2 != none)
-		{
-			Item.AbilityName2 = AbilityTemplate2.DataName;
-			AbilityName2 = Caps(AbilityTemplate2.LocFriendlyName);
-			AbilityIcon2 = AbilityTemplate2.IconImage;
-		}
-
-		Item.SetAbilityData(AbilityIcon1, AbilityName1, AbilityIcon2, AbilityName2);
-		Item.SetEquippedAbilities(bHasAbility1, bHasAbility2);
-
-		Item.SetPromote(false);
-		Item.SetDisabled(false);
-
-		if (!bHasAbility1 || !bHasAbility2)
-		{
-			Item.SetPromote(true, !bHasAbility1, !bHasAbility2);
-			GotAllAbilities = false;
-		}
-
-		Item.RealizeVisuals();
-	}
-
-	if (!GotAllAbilities)
-	{
-		HeaderString = "SELECT ABILITY:";
-	}
-
-	class'UIUtilities_Strategy'.static.PopulateAbilitySummary(self, Unit);
-	List.SetSelectedIndex(-1);
-	PreviewRow(List, -1);
-	Navigator.SetSelected(ClassRowItem);
+	HidePreview();
 }
 
-simulated function PreviewRow(UIList ContainerList, int ItemIndex)
+function bool UpdateAbilityIcons(out UIArmory_PromotionHeroColumn Column)
 {
-	local int i, Rank, TempRank, RealRank;
-	local string TmpStr;
-	local X2AbilityTemplate AbilityTemplate;
-	local array<SoldierClassAbilityType> AbilityTree;
 	local X2AbilityTemplateManager AbilityTemplateManager;
-	local X2SoldierClassTemplate ClassTemplate;
+	local X2AbilityTemplate AbilityTemplate, NextAbilityTemplate;
+	local array<SoldierClassAbilityType> AbilityTree, NextRankTree;
 	local XComGameState_Unit Unit;
-	local SoldierClassAbilityType RankAbility;
+	local UIPromotionButtonState ButtonState;
+	local int iAbility;
+	local bool bHasColumnAbility, bConnectToNextAbility;
+	local string AbilityName, AbilityIcon, BGColor, FGColor;
 
-	Unit = GetUnit();
-
-	if (ItemIndex == INDEX_NONE)
-		Rank = 0;
-	else
-		Rank = UIArmory_PromotionItem(List.GetItem(ItemIndex)).Rank;
-
-	MC.BeginFunctionOp("setAbilityPreview");
-
-	ClassTemplate = Unit.GetSoldierClassTemplate();
-	AbilityTree = Unit.GetRankAbilities(Rank);
 	AbilityTemplateManager = class'X2AbilityTemplateManager'.static.GetAbilityTemplateManager();
-	
-	for (i = 0; i < NUM_ABILITIES_PER_RANK; ++i)
+	Unit = GetUnit();
+	AbilityTree = Unit.GetRankAbilities(Column.Rank);
+
+	for (iAbility = 0; iAbility < NUM_ABILITIES_PER_COLUMN; iAbility++)
 	{
-		// Left icon is the class icon for the first item, show class icon plus class desc.
-		if (i == 0 && Rank == 0)
+		AbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(AbilityTree[iAbility].AbilityName);
+		if (AbilityTemplate != none)
 		{
-			MC.QueueString(ClassTemplate.IconImage); // icon
-			MC.QueueString(Caps(ClassTemplate.DisplayName)); // name
-			MC.QueueString(ClassTemplate.ClassSummary); // description
-			MC.QueueBoolean(true); // isClassIcon
+			if (Column.AbilityNames.Find(AbilityTemplate.DataName) == INDEX_NONE)
+			{
+				Column.AbilityNames.AddItem(AbilityTemplate.DataName);
+			}
+
+			AbilityName = class'UIUtilities_Text'.static.CapsCheckForGermanScharfesS(AbilityTemplate.LocFriendlyName);
+			AbilityIcon = AbilityTemplate.IconImage;
+
+			if (Unit.HasSoldierAbility(AbilityTemplate.DataName))
+			{
+				// The ability has been purchased
+				ButtonState = eUIPromotionState_Equipped;
+				FGColor = class'UIUtilities_Colors'.const.PSIONIC_HTML_COLOR;
+				BGColor = class'UIUtilities_Colors'.const.BLACK_HTML_COLOR;
+				bHasColumnAbility = true;
+			}
+			else if(CanPurchaseAbility(Column.Rank, iAbility, AbilityTemplate.DataName))
+			{
+				// The ability is unlocked and unpurchased, and can be afforded
+				ButtonState = eUIPromotionState_Normal;
+				FGColor = class'UIUtilities_Colors'.const.PERK_HTML_COLOR;
+				BGColor = class'UIUtilities_Colors'.const.BLACK_HTML_COLOR;
+			}
+			else
+			{
+				// The ability is unlocked and unpurchased, but cannot be afforded
+				ButtonState = eUIPromotionState_Normal;
+				FGColor = class'UIUtilities_Colors'.const.BLACK_HTML_COLOR;
+				BGColor = class'UIUtilities_Colors'.const.DISABLED_HTML_COLOR;
+			}
+				
+			// Look ahead to the next rank and check to see if the current ability is a prereq for the next one
+			// If so, turn on the connection arrow between them
+			if (Column.Rank < (class'X2ExperienceConfig'.static.GetMaxRank() - 2))
+			{
+				bConnectToNextAbility = false;
+				NextRankTree = Unit.GetRankAbilities(Column.Rank + 1);
+				NextAbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(NextRankTree[iAbility].AbilityName);
+				if (NextAbilityTemplate.PrerequisiteAbilities.Length > 0 && NextAbilityTemplate.PrerequisiteAbilities.Find(AbilityTemplate.DataName) != INDEX_NONE)
+				{
+					bConnectToNextAbility = true;
+				}
+			}
+
+			Column.SetAvailable(true);
+
+			Column.AS_SetIconState(iAbility, false, AbilityIcon, AbilityName, ButtonState, FGColor, BGColor, bConnectToNextAbility);
 		}
 		else
 		{
-			// Right icon is the first ability the Psi Op learned on the first row item
-			if (i == 1 && Rank == 0)
-			{
-				AbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(ClassRowItem.AbilityName2);
-			}
-			else if (i == 0)
-			{
-				AbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(UIArmory_PromotionItem(List.GetItem(ItemIndex)).AbilityName1);
-			}
-			else
-				AbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(UIArmory_PromotionItem(List.GetItem(ItemIndex)).AbilityName2);
-			
-			if (AbilityTemplate != none)
-			{
-				MC.QueueString(AbilityTemplate.IconImage); // icon
-
-				TmpStr = AbilityTemplate.LocFriendlyName != "" ? AbilityTemplate.LocFriendlyName : ("Missing 'LocFriendlyName' for " $ AbilityTemplate.DataName);
-				MC.QueueString(Caps(TmpStr)); // name
-
-				TmpStr = AbilityTemplate.HasLongDescription() ? AbilityTemplate.GetMyLongDescription(, Unit) : ("Missing 'LocLongDescription' for " $ AbilityTemplate.DataName);
-				if (!GetUnit().HasSoldierAbility(AbilityTemplate.DataName))
-				{
-					for (TempRank = 0; TempRank < ClassTemplate.GetMaxConfiguredRank(); TempRank++)
-					{
-						AbilityTree = Unit.GetRankAbilities(TempRank);
-						foreach AbilityTree(RankAbility)
-						{
-							if (RankAbility.AbilityName == AbilityTemplate.DataName)
-							{
-								RealRank = TempRank;
-							}
-						}
-					}
-					TmpStr = "Learn cost:" @ GetAbilityPrice(RealRank) $ "\n" $ TmpStr;
-				}
-				MC.QueueString(TmpStr); // description
-				MC.QueueBoolean(false); // isClassIcon
-			}
-			else
-			{
-				MC.QueueString(""); // icon
-				MC.QueueString(string(AbilityTree[i].AbilityName)); // name
-				MC.QueueString("Missing template for ability '" $ AbilityTree[i].AbilityName $ "'"); // description
-				MC.QueueBoolean(false); // isClassIcon
-			}
+			Column.AbilityNames.AddItem(''); // Make sure we add empty spots to the name array for getting ability info
 		}
 	}
 
-	MC.EndOp();
-	
-	if (Rank == 0)
+	// bsg-nlong (1.25.17): Select the first available/visible ability in the column
+	while(`ISCONTROLLERACTIVE && !Column.AbilityIcons[Column.m_iPanelIndex].bIsVisible)
 	{
-		ClassRowItem.SetSelectedAbility(1);
+		Column.m_iPanelIndex +=1;
+		if( Column.m_iPanelIndex >= Column.AbilityIcons.Length )
+		{
+			Column.m_iPanelIndex = 0;
+		}
+	}
+	// bsg-nlong (1.25.17): end
+
+	return bHasColumnAbility;
+}
+
+function PreviewAbility(int Rank, int Branch)
+{
+	local X2AbilityTemplateManager AbilityTemplateManager;
+	local X2AbilityTemplate AbilityTemplate, PreviousAbilityTemplate;
+	local XComGameState_Unit Unit;
+	local array<SoldierClassAbilityType> AbilityTree;
+	local string AbilityIcon, AbilityName, AbilityDesc, AbilityHint, AbilityCost, CostLabel, APLabel, PrereqAbilityNames;
+	local name PrereqAbilityName;
+
+	Unit = GetUnit();
+	
+	// Ability cost is always displayed, even if the rank hasn't been unlocked yet
+	CostLabel = m_strCostLabel;
+	AbilityCost = string(GetAbilityPrice(Rank));
+	APLabel = class'UIUtilities_Strategy'.static.GetResourceDisplayName('Supplies', GetAbilityPrice(Rank));
+	if (!CanAffordAbility(Rank, Branch))
+	{
+		AbilityCost = class'UIUtilities_Text'.static.GetColoredText(AbilityCost, eUIState_Bad);
+	}
+	
+	AbilityTemplateManager = class'X2AbilityTemplateManager'.static.GetAbilityTemplateManager();
+	AbilityTree = Unit.GetRankAbilities(Rank);
+	AbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(AbilityTree[Branch].AbilityName);
+
+	if (AbilityTemplate != none)
+	{
+		AbilityIcon = AbilityTemplate.IconImage;
+		AbilityName = AbilityTemplate.LocFriendlyName != "" ? AbilityTemplate.LocFriendlyName : ("Missing 'LocFriendlyName' for " $ AbilityTemplate.DataName);
+		AbilityDesc = AbilityTemplate.HasLongDescription() ? AbilityTemplate.GetMyLongDescription(, Unit) : ("Missing 'LocLongDescription' for " $ AbilityTemplate.DataName);
+		AbilityHint = "";
+
+		// Don't display cost information if the ability has already been purchased
+		if (Unit.HasSoldierAbility(AbilityTemplate.DataName))
+		{
+			CostLabel = "";
+			AbilityCost = "";
+			APLabel = "";
+		}
+		else if (AbilityTemplate.PrerequisiteAbilities.Length > 0)
+		{
+			// Look back to the previous rank and check to see if that ability is a prereq for this one
+			// If so, display a message warning the player that there is a prereq
+			foreach AbilityTemplate.PrerequisiteAbilities(PrereqAbilityName)
+			{
+				PreviousAbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(PrereqAbilityName);
+				if (PreviousAbilityTemplate != none && !Unit.HasSoldierAbility(PrereqAbilityName))
+				{
+					if (PrereqAbilityNames != "")
+					{
+						PrereqAbilityNames $= ", ";
+					}
+					PrereqAbilityNames $= PreviousAbilityTemplate.LocFriendlyName;
+				}
+			}
+			PrereqAbilityNames = class'UIUtilities_Text'.static.FormatCommaSeparatedNouns(PrereqAbilityNames);
+
+			if (PrereqAbilityNames != "")
+			{
+				AbilityDesc = class'UIUtilities_Text'.static.GetColoredText(m_strPrereqAbility @ PrereqAbilityNames, eUIState_Warning) $ "\n" $ AbilityDesc;
+			}
+		}
 	}
 	else
 	{
-		UIArmory_PromotionItem(List.GetItem(ItemIndex)).SetSelectedAbility(SelectedAbilityIndex);
+		AbilityIcon = "";
+		AbilityName = string(AbilityTree[Branch].AbilityName);
+		AbilityDesc = "Missing template for ability '" $ AbilityTree[Branch].AbilityName $ "'";
+		AbilityHint = "";
 	}
+	
+	AS_SetDescriptionData(AbilityIcon, AbilityName, AbilityDesc, AbilityHint, CostLabel, AbilityCost, APLabel);
 }
 
+function bool CanAffordAbility(int Rank, int Branch)
+{
+	local XComGameState_HeadquartersXCom XComHQ;
+	local int AbilityCost;
+
+	XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
+
+	AbilityCost = GetAbilityPrice(Rank);
+	if (AbilityCost <= XComHQ.GetSupplies())
+	{
+		return true;
+	}
+
+	return false;
+}
+
+function bool CanPurchaseAbility(int Rank, int Branch, name AbilityName)
+{
+	local XComGameState_Unit UnitState;
+
+	UnitState = GetUnit();		
+	return (CanAffordAbility(Rank, Branch) && UnitState.MeetsAbilityPrerequisites(AbilityName));
+}
 
 simulated function ConfirmAbilitySelection(int Rank, int Branch)
 {
 	local XGParamTag LocTag;
 	local TDialogueBoxData DialogData;
-	local X2SoldierClassTemplate ClassTemplate;
 	local X2AbilityTemplate AbilityTemplate;
 	local X2AbilityTemplateManager AbilityTemplateManager;
 	local array<SoldierClassAbilityType> AbilityTree;
-	local SoldierClassAbilityType Ranks;
-	local int RealRank, SupplyCost;
+	local int SupplyCost;
 	local XComGameState_HeadquartersXCom XComHQ;
-	local UIArmory_PromotionItem ItemSelected;
+
+	PendingRank = Rank;
+	PendingBranch = Branch;
 
 	Movie.Pres.PlayUISound(eSUISound_MenuSelect);
 
@@ -291,56 +368,30 @@ simulated function ConfirmAbilitySelection(int Rank, int Branch)
 	DialogData.strAccept = class'UIUtilities_Text'.default.m_strGenericYes;
 	DialogData.strCancel = class'UIUtilities_Text'.default.m_strGenericNO;
 	DialogData.fnCallback = ComfirmAbilityCallback;
-	
-	ClassTemplate = GetUnit().GetSoldierClassTemplate();
+
+	AbilityTree = GetUnit().GetRankAbilities(Rank);
 	AbilityTemplateManager = class'X2AbilityTemplateManager'.static.GetAbilityTemplateManager();
-	if (Rank > 0)
-		ItemSelected = UIArmory_PromotionItem(List.GetItem(Rank - 1));
-	else
-		ItemSelected = ClassRowItem;
-	if (Branch == 0 && Rank > 0)
-		AbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(ItemSelected.AbilityName1);
-	else
-		AbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(ItemSelected.AbilityName2);
+	AbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(AbilityTree[Branch].AbilityName);
+	SupplyCost = GetAbilityPrice(Rank);
 
-	if (GetUnit().HasSoldierAbility(AbilityTemplate.DataName))
-		return; // Already learned
+	XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
 
-	PendingRank = -1;
-	PendingBranch = -1;
+	LocTag = XGParamTag(`XEXPANDCONTEXT.FindTag("XGParam"));
+	LocTag.StrValue0 = AbilityTemplate.LocFriendlyName;
+	LocTag.IntValue0 = SupplyCost;
 
-	if (AbilityTemplate != none)
+	if (XComHQ != none && XComHQ.GetSupplies() < SupplyCost)
 	{
-		for (RealRank = 0; RealRank < ClassTemplate.GetMaxConfiguredRank(); RealRank++)
-		{
-			AbilityTree = GetUnit().GetRankAbilities(RealRank);
-			foreach AbilityTree(Ranks)
-			{
-				if (Ranks.AbilityName == AbilityTemplate.DataName)
-				{
-					PendingRank = RealRank;
-					PendingBranch = AbilityTree.Find('AbilityName', AbilityTemplate.DataName);
-				}
-			}
-		}
-
-		// Check ability price
-		XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
-		SupplyCost = GetAbilityPrice(PendingRank);
-		if (XComHQ != none && XComHQ.GetSupplies() < SupplyCost)
-		{
-			DialogData.strCancel = "";
-			DialogData.fnCallback = "";
-			DialogData.strText = "Not enough supplies to learn this ability (Need" @ SupplyCost $ ")";
-		}
-		else
-		{
-			LocTag = XGParamTag(`XEXPANDCONTEXT.FindTag("XGParam"));
-			LocTag.StrValue0 = AbilityTemplate.LocFriendlyName;
-			DialogData.strText = `XEXPAND.ExpandString(m_strConfirmAbilityText) @ "\n This will cost you" @ SupplyCost @ "supplies.";
-		}
-		Movie.Pres.UIRaiseDialog(DialogData);
+		DialogData.strCancel = "";
+		DialogData.fnCallback = "";
+		DialogData.strText = "Not enough supplies to learn this ability (Need" @ SupplyCost $ ")";
 	}
+	else
+	{
+		DialogData.strText = Repl(`XEXPAND.ExpandString(m_strConfirmAbilityText), m_strAPLabel, class'UIX2SimpleScreen'.default.m_strSupplies);
+	}
+
+	Movie.Pres.UIRaiseDialog(DialogData);
 }
 
 simulated function int GetAbilityPrice(int Rank)
@@ -414,9 +465,28 @@ simulated function ComfirmAbilityCallback(name Action)
 	else 	// if we got here it means we were going to upgrade an ability, but then we decided to cancel
 	{
 		Movie.Pres.PlayUISound(eSUISound_MenuClickNegative);
-		List.SetSelectedIndex(previousSelectedIndexOnFocusLost, true);
-		UIArmory_PromotionItem(List.GetSelectedItem()).SetSelectedAbility(SelectedAbilityIndex);
 	}
+}
+
+simulated function AS_SetAPData(int TeamAPValue, int SoldierAPValue)
+{
+	MC.BeginFunctionOp("SetAPData");
+	MC.QueueString("");
+	MC.QueueString(string(SoldierAPValue));
+	MC.EndOp();
+}
+
+simulated function AS_SetCombatIntelData( string Value )
+{
+	MC.BeginFunctionOp("SetCombatIntelData");
+	MC.QueueString(class'UIAlert'.default.m_strPsiTrainingCompleteRank);
+	MC.QueueString(Value);
+	MC.EndOp();
+}
+
+function bool IsAbilityLocked(int Rank)
+{
+	return false;
 }
 
 simulated function RequestPawn(optional Rotator DesiredRotation)

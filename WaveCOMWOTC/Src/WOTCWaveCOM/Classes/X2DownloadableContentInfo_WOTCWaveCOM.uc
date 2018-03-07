@@ -818,7 +818,7 @@ static function StaticWaveCOMMissionTransfer(optional int MapIndex=-1)
 	
 	if (MapIndex < 0 || MapIndex >= MissionTypes.Length)
 	{
-		MapIndex = class'Engine'.static.GetEngine().SyncRand(MissionTypes.Length, "WaveCOMTransferMissionRoll");
+		MapIndex = Rand(MissionTypes.Length);
 	}
 
 	MissionType = MissionTypes[MapIndex];
@@ -888,7 +888,7 @@ exec function RemoveAllUnusedEnemyStateObjects()
 	foreach `XCOMHISTORY.IterateByClassType(class'XComGameState_Unit', UnitState)
 	{
 		totalUnitState++;
-		if (UnitState.GetTeam() == eTeam_Alien)
+		if (UnitState.GetTeam() == eTeam_Alien || UnitState.GetTeam() == eTeam_TheLost)
 		{
 			totalAliens++;
 			if (UnitState.bRemovedFromPlay)
@@ -1039,11 +1039,12 @@ exec function GetObjectIDStatus(int ID)
 exec function ReviveAll()
 {
 	local WaveCOMGameStateContext_UpdateUnit EffectContext;
-	local StateObjectReference AbilityReference, UnitRef;
+	local StateObjectReference UnitRef;
 	local XComGameState NewGameState;
 	local XGUnit Visualizer;
 	local XComGameState_Unit UnitState;
 	local XComGameState_HeadquartersXCom XComHQ;
+	local array<XComGameState_Unit> UnitToSyncVis;
 
 	foreach `XCOMHISTORY.IterateByClassType(class'XComGameState_Unit', UnitState)
 	{
@@ -1053,15 +1054,11 @@ exec function ReviveAll()
 			NewGameState = EffectContext.GetGameState();
 			UnitState = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitState.ObjectID));
 			`log("Cleaning and readding Abilities");
-			foreach UnitState.Abilities(AbilityReference)
-			{
-				NewGameState.RemoveStateObject(AbilityReference.ObjectID);
-			}
-			UnitState.Abilities.Length = 0;
+			class'WaveCOM_UIArmory_FieldLoadout'.static.ClearAbilities(UnitState, NewGameState);
 			Visualizer = XGUnit(UnitState.FindOrCreateVisualizer());
 			Visualizer.GetPawn().StopPersistentPawnPerkFX(); // Remove all abilities visualizers
 
-			class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState, EffectContext);
+			class'WaveCOM_UIArmory_FieldLoadout'.static.CleanUpStats(NewGameState, UnitState);
 			class'WaveCOM_UIArmory_FieldLoadout'.static.RefillInventory(NewGameState, UnitState);
 
 			`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
@@ -1070,10 +1067,13 @@ exec function ReviveAll()
 			UnitRef = UnitState.GetReference();
 			if (UnitState.IsAlive() && XComHQ.Squad.Find('ObjectID', UnitRef.ObjectID) != INDEX_NONE && !UnitState.bRemovedFromPlay)
 			{
-				class'WaveCOM_UIArmory_FieldLoadout'.static.UpdateUnit(UnitRef.ObjectID);
+				class'WaveCOM_UIArmory_FieldLoadout'.static.UpdateUnit(UnitRef.ObjectID, false);
+				UnitToSyncVis.AddItem(UnitState);
 			}
 		}
 	}
+	
+	class'WaveCOM_UIArmory_FieldLoadout'.static.SyncVisualizers(UnitToSyncVis);
 }
 
 static function int GetPlayerGroupID(optional XComGameState NewGameState)
@@ -1153,4 +1153,9 @@ exec function TestPanel(int X, int Y, int Width, int Height)
 	{
 		BGPanel.Hide();
 	}
+}
+
+exec function WaveCOMArchiveHistory(optional string HistoryName="WaveCOM history")
+{
+	`XCOMHISTORY.ArchiveHistory(HistoryName, true);
 }

@@ -20,7 +20,7 @@ static function X2DataTemplate CreateWaveCOMTemplate()
 	Template.DifficultyValue = 3;
 	Template.bSkipRewardsRecap = true;
 	Template.CustomMusicSet = 'Tutorial';
-	Template.CustomLoadingMovieName_Intro = "1080_LoadingScreen5.bk2";
+	//Template.CustomLoadingMovieName_Intro = "CIN_XP_UI_LogoSpin.bk2";
 	Template.bRequiresSkyRangerTravel = false;
 	Template.OnSuccessFn = AvengerDefenseOnSuccess;
 	Template.OnFailureFn = AvengerDefenseOnFailure;

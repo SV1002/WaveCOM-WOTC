@@ -2,7 +2,7 @@ class WaveCOMFinalShellPatcher extends UIPanel;
 
 simulated function UIPanel InitPanel(optional name InitName, optional name InitLibID)
 {
-	super.InitPanel(InitName, InitLibID);
+	return super.InitPanel(InitName, InitLibID);
 }
 
 event Tick(float DeltaTime)
@@ -35,8 +35,10 @@ simulated function OpenNewDifficultyScreen(UIButton button)
 	TargetMovie = XComShellPresentationLayer(button.Screen.Owner) == none ? XComPresentationLayerBase(button.Screen.Owner).Get2DMovie() : XComPresentationLayerBase(button.Screen.Owner).Get3DMovie();
 	//TargetMovie = Get2DMovie();
 
-	TempScreen = button.Screen.Owner.Spawn( class'WaveCOM_UIShellDifficulty', button.Screen.Owner  );
-	WaveCOM_UIShellDifficulty(TempScreen).m_bIsPlayingGame = false; 
+	//TempScreen = button.Screen.Owner.Spawn( class'WaveCOM_UIShellDifficulty', button.Screen.Owner  );
+	TempScreen = button.Screen.Owner.Spawn( class'UIShellDifficulty', button.Screen.Owner  );
+	//WaveCOM_UIShellDifficulty(TempScreen).m_bIsPlayingGame = false; 
+	UIShellDifficulty(TempScreen).m_bIsPlayingGame = false; 
 
 	XComPresentationLayerBase(button.Screen.Owner).ScreenStack.Push( TempScreen, TargetMovie );
 }
