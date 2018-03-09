@@ -1,4 +1,9 @@
-class WaveCOMXComGameState_BlackMarket extends XComGameState_BlackMarket;
+class WaveCOMXComGameState_BlackMarket extends XComGameState_BlackMarket config(WaveCOM);
+
+// These multipliers are multiples based on base game intel costs
+var config float EleriumCoreIntelMultiplier;
+var config float AbilityPointsIntelMultiplier;
+var config float PersonnelIntelMultiplier;
 
 function array<XComGameState_Item> RollForBlackMarketLoot(XComGameState NewGameState)
 {
@@ -97,7 +102,7 @@ function StrategyCost GetPersonnelForSaleItemCost_Hero(optional float CostScalar
 {
 	local StrategyCost Cost;
 	local XComGameState_Unit UnitState;
-	local int XComCount, HeroCost, HeroIntelCost;
+	local int XComCount, HeroCost, HeroIntelCost, IntelVariance;
 
 	Cost = GetPersonnelForSaleItemCost(CostScalar);
 
@@ -123,8 +128,21 @@ function StrategyCost GetPersonnelForSaleItemCost_Hero(optional float CostScalar
 		HeroCost = class'WaveCOM_UILoadoutButton'.default.WaveCOMHeroDeployExtraCosts[XComCount];
 		HeroIntelCost = class'WaveCOM_UILoadoutButton'.default.WaveCOMHeroIntelCosts[XComCount];
 	}
+
+	IntelVariance = Round((float(`SYNC_RAND(`ScaleStrategyArrayInt(default.IntelCostVariance))) / 100.0)* float(HeroIntelCost));
+
+	if(class'X2StrategyGameRulesetDataStructures'.static.Roll(50))
+	{
+		IntelVariance = -IntelVariance;
+	}
+
+	HeroIntelCost += IntelVariance;
+	HeroIntelCost = Round(float(HeroIntelCost) * CostScalar);
+
+	// Make it a multiple of 5
+	HeroIntelCost = Round(float(HeroIntelCost) / 5.0) * 5;
 	
-	Cost.ResourceCosts[0].Quantity = HeroIntelCost + ((NumTimesAppeared - 1) * `ScaleStrategyArrayInt(default.PersonnelItemIntelCostIncrease) * 5);
+	Cost.ResourceCosts[0].Quantity = HeroIntelCost;
 	Cost.ResourceCosts[1].Quantity += Round(HeroCost * (100.0f / (100.0f - GoodsCostPercentDiscount)));
 
 	return Cost;
@@ -165,7 +183,7 @@ function bool UpdateBuyPrices()
 			}
 			else if (RewardState.GetMyTemplateName() == 'Reward_Soldier')
 			{
-				FakeCost = GetPersonnelForSaleItemCost(PriceReductionScalar);
+				FakeCost = GetPersonnelForSaleItemCost(PriceReductionScalar * default.PersonnelIntelMultiplier);
 				ForSaleItems[idx].Cost.ResourceCosts.Remove(SupCost, 1); 
 				ForSaleItems[idx].Cost.ResourceCosts.AddItem(FakeCost.ResourceCosts[1]);
 			}
@@ -223,7 +241,7 @@ function SetUpForSaleItems(XComGameState NewGameState)
 	ForSaleItem.RewardRef = RewardState.GetReference();
 
 	ForSaleItem.Title = RewardState.GetRewardString();
-	ForSaleItem.Cost = GetForSaleItemCost(PriceReductionScalar * 5.0f);
+	ForSaleItem.Cost = GetForSaleItemCost(PriceReductionScalar * default.AbilityPointsIntelMultiplier);
 	ForSaleItem.Desc = RewardState.GetBlackMarketString();
 	ForSaleItem.Image = RewardState.GetRewardImage();
 	ForSaleItem.CostScalars = GoodsCostScalars;
@@ -239,7 +257,7 @@ function SetUpForSaleItems(XComGameState NewGameState)
 	ForSaleItem.RewardRef = RewardState.GetReference();
 
 	ForSaleItem.Title = RewardState.GetRewardString();
-	ForSaleItem.Cost = GetForSaleItemCost(PriceReductionScalar);
+	ForSaleItem.Cost = GetForSaleItemCost(PriceReductionScalar * default.EleriumCoreIntelMultiplier);
 	ForSaleItem.Desc = RewardState.GetBlackMarketString();
 	ForSaleItem.Image = RewardState.GetRewardImage();
 	ForSaleItem.CostScalars = GoodsCostScalars;
@@ -256,7 +274,7 @@ function SetUpForSaleItems(XComGameState NewGameState)
 	ForSaleItem.RewardRef = RewardState.GetReference();
 
 	ForSaleItem.Title = RewardState.GetRewardString();
-	ForSaleItem.Cost = GetPersonnelForSaleItemCost(PriceReductionScalar);
+	ForSaleItem.Cost = GetPersonnelForSaleItemCost(PriceReductionScalar * default.PersonnelIntelMultiplier);
 	ForSaleItem.Desc = RewardState.GetBlackMarketString();
 	ForSaleItem.Image = "img:///UILibrary_XPACK_StrategyImages.DarkEvent_The_Collectors";
 	ForSaleItem.CostScalars = GoodsCostScalars;

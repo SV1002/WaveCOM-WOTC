@@ -1159,3 +1159,12 @@ exec function WaveCOMArchiveHistory(optional string HistoryName="WaveCOM history
 {
 	`XCOMHISTORY.ArchiveHistory(HistoryName, true);
 }
+
+exec function RollForSitRep(optional bool bForceTrigger=false, optional name SitRepName)
+{
+	if (`PRES != none)
+	{
+		class'WaveCOM_MissionLogic_WaveCOM'.static.RollForSitReps(none, bForceTrigger, SitRepName);
+		`PRES.GetTacticalHUD().RefreshSitRep();
+	}
+}
