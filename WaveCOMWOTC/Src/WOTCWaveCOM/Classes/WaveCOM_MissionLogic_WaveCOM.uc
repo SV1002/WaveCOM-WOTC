@@ -48,6 +48,7 @@ var const config int WaveCOMKillSupplyBonusBase;
 var const config float WaveCOMKillSupplyBonusMultiplier;
 var const config int WaveCOMWaveSupplyBonusBase;
 var const config float WaveCOMWaveSupplyBonusMultiplier;
+var const config float WaveCOMWaveSupplyBonusMax;
 var const config int WaveCOMIntelBonusBase;
 var const config float WaveCOMKillIntelBonusBase;
 var const config int WaveCOMPassiveXPPerKill;
@@ -182,6 +183,7 @@ function SetupMissionStartState(XComGameState StartState)
 	
 	BattleData = XComGameState_BattleData(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_BattleData'));
 	BattleData.SetGlobalAbilityEnabled( 'PlaceEvacZone', false, StartState);
+	BattleData.SetGlobalAbilityEnabled( 'ChosenKidnapMove', false, StartState);
 
 	`XEVENTMGR.RegisterForEvent(ThisObj, 'HACK_RemoveExcessSoldiers', RemoveExcessUnits, ELD_OnStateSubmitted,, StartState);
 	`XEVENTMGR.TriggerEvent('HACK_RemoveExcessSoldiers', StartState, StartState, StartState);
@@ -331,6 +333,7 @@ function InitiateWave()
 	NewMissionState.AliensDefeated = false;
 
 	BattleData = XComGameState_BattleData(History.GetSingleGameStateObjectForClass(class'XComGameState_BattleData'));
+	BattleData.InternalActivateChosenAlert();
 	ObjectiveLocation = BattleData.MapData.ObjectiveLocation;
 	BattleData = XComGameState_BattleData(NewGameState.ModifyStateObject(class'XComGameState_BattleData', BattleData.ObjectID));
 
@@ -601,12 +604,12 @@ function CollectLootToHQ()
 	local XComGameState_BattleData BattleData;
 	local XComGameState_HeadquartersXCom XComHQ;
 	local float FloatingIntel;
-	local int LootIndex, SupplyReward, IntelReward, KillCount;
+	local int LootIndex, SupplyReward, BonusReward, IntelReward, KillCount;
 	local X2ItemTemplateManager ItemTemplateManager;
 	local XComGameState_Item ItemState;
 	local array<XComGameState_Item> ItemStates;
 	local X2ItemTemplate ItemTemplate;
-	local XComGameState_Unit UnitState;
+	local XComGameState_Unit UnitState, OldUnitState;
 	local array<XComGameState_Unit> BondingSoldiers;
 	local WaveCOM_MissionLogic_WaveCOM MissionState;
 	local array<XComGameState_Unit> UnitToSyncVis;
@@ -635,8 +638,8 @@ function CollectLootToHQ()
 	ItemTemplateManager = class'X2ItemTemplateManager'.static.GetItemTemplateManager();
 	foreach History.IterateByClassType(class'XComGameState_Unit', UnitState)
 	{
-
-		if( UnitState.IsAdvent() || UnitState.IsAlien() )
+		OldUnitState = XComGameState_Unit(History.GetOriginalGameStateRevision(UnitState.ObjectID));
+		if( UnitState.IsAdvent() || UnitState.IsAlien() || OldUnitState.GetTeam() == eTeam_TheLost )
 		{
 			if ( !UnitState.bBodyRecovered ) {
 				class'X2LootTableManager'.static.GetLootTableManager().RollForLootCarrier(UnitState.GetMyTemplate().Loot, PendingAutoLoot);
@@ -655,7 +658,10 @@ function CollectLootToHQ()
 						ItemTemplate = ItemTemplateManager.FindItemTemplate(LootTemplateName);
 						SupplyReward = SupplyReward + Round(ItemTemplate.TradingPostValue * WaveCOMKillSupplyBonusMultiplier);
 						SupplyReward = SupplyReward + WaveCOMKillSupplyBonusBase;
-						FloatingIntel += WaveCOMKillIntelBonusBase;
+						if ( OldUnitState.GetTeam() != eTeam_TheLost )
+						{
+							FloatingIntel += WaveCOMKillIntelBonusBase;
+						}
 						RolledLoot.AddItem(ItemTemplate.DataName);
 					}
 
@@ -724,8 +730,14 @@ function CollectLootToHQ()
 		XComHQ.PutItemInInventory(NewGameState, ItemState, false);
 	}
 
-	SupplyReward = SupplyReward + WaveCOMWaveSupplyBonusBase;
-	SupplyReward = SupplyReward + Round(MissionState.WaveNumber * WaveCOMWaveSupplyBonusMultiplier);
+	BonusReward = default.WaveCOMWaveSupplyBonusBase;
+	BonusReward = BonusReward + Round(MissionState.WaveNumber * default.WaveCOMWaveSupplyBonusMultiplier);
+	if (default.WaveCOMWaveSupplyBonusMax > 0)
+	{
+		BonusReward = min(BonusReward, default.WaveCOMWaveSupplyBonusMax);
+	}
+
+	SupplyReward += BonusReward;
 
 	ItemTemplate = ItemTemplateManager.FindItemTemplate('Supplies');
 	ItemState = ItemTemplate.CreateInstanceFromTemplate(NewGameState);
@@ -802,12 +814,6 @@ function BeginPreparationRound()
 	local XComGameState_BlackMarket BlackMarket;
 	local XComGameState_HeadquartersXCom XComHQ;
 	local XComGameState_Tech InspiredTechState, BreakthroughTechState;
-	local RollForSitRep SitRepInfo;
-	local X2SitRepTemplate SitRepTemplate;
-	local array<RollForSitRep> ValidSitReps;
-	local X2SitRepTemplateManager SitRepManager;
-	local int MaxWeighting, idx, Weighting;
-	local name TacticalTag;
 	local XComGameState_BattleData BattleData;
 
 	CollectLootToHQ();
@@ -856,6 +862,90 @@ function BeginPreparationRound()
 	`log("BeginPreparationRound :: Added Breakthrough" @ XComHQ.CurrentBreakthroughTech.ObjectID,, 'WaveCOM');
 
 	// Clear sitreps and roll for new ones.
+	RollForSitReps(NewGameState);
+
+	`XEVENTMGR.TriggerEvent('WaveCOM_WaveEnd',,, NewGameState);
+
+	UpdateChosenLevel(NewGameState, GetForceLevel(NewMissionState.WaveNumber + 1));
+
+	`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
+
+	BattleData.SetGlobalAbilityEnabled( 'PlaceEvacZone', false);
+
+	//`XCOMHISTORY.ArchiveHistory("Wave" @ NewMissionState.WaveNumber, true);
+
+	UpdateCombatCountdown();
+}
+
+static function RollForSitReps(XComGameState NewGameState, optional bool bForceTrigger=false, optional name SitRepName='')
+{
+	local XComGameState_HeadquartersXCom XComHQ;
+	local WaveCOM_MissionLogic_WaveCOM NewMissionState;
+	local XComGameState_BattleData BattleData;
+	local X2SitRepTemplateManager SitRepManager;
+	local RollForSitRep SitRepInfo;
+	local X2SitRepTemplate SitRepTemplate;
+	local array<RollForSitRep> ValidSitReps;
+	local int MaxWeighting, idx, Weighting, GameStateID;
+	local name TacticalTag;
+	local bool bShouldSubmitState;
+
+	if (NewGameState == none)
+	{
+		bShouldSubmitState = true;
+		NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState("Rolling for sitreps");
+	}
+	else
+	{
+		bShouldSubmitState = false;
+	}
+
+	NewMissionState = WaveCOM_MissionLogic_WaveCOM(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'WaveCOM_MissionLogic_WaveCOM'));
+	if (NewMissionState == none)
+	{
+		// Call from wrong context, KILL
+		if (bShouldSubmitState)
+		{
+			`XCOMHISTORY.CleanupPendingGameState(NewGameState);
+		}
+		return;
+	}
+	else
+	{
+		GameStateID = NewMissionState.ObjectID;
+		NewMissionState = WaveCOM_MissionLogic_WaveCOM(NewGameState.GetGameStateForObjectID(GameStateID));
+	}
+	if (NewMissionState == none)
+	{
+		NewMissionState = WaveCOM_MissionLogic_WaveCOM(NewGameState.ModifyStateObject(class'WaveCOM_MissionLogic_WaveCOM', GameStateID));
+	}
+
+	if (NewMissionState.WaveStatus != eWaveStatus_Preparation)
+	{
+		// Bad Wave status to call this
+		if (bShouldSubmitState)
+		{
+			`XCOMHISTORY.CleanupPendingGameState(NewGameState);
+		}
+		return;
+	}
+
+	XComHQ = XComGameState_HeadquartersXCom(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
+	GameStateID = XComHQ.ObjectID;
+	XComHQ = XComGameState_HeadquartersXCom(NewGameState.GetGameStateForObjectID(GameStateID));
+	if (XComHQ == none)
+	{
+		XComHQ = XComGameState_HeadquartersXCom(NewGameState.ModifyStateObject(class'XComGameState_HeadquartersXCom', GameStateID));
+	}
+
+	BattleData = XComGameState_BattleData(`XCOMHISTORY.GetSingleGameStateObjectForClass(class'XComGameState_BattleData'));
+	GameStateID = BattleData.ObjectID;
+	BattleData = XComGameState_BattleData(NewGameState.GetGameStateForObjectID(GameStateID));
+	if (BattleData == none)
+	{
+		BattleData = XComGameState_BattleData(NewGameState.ModifyStateObject(class'XComGameState_BattleData', GameStateID));
+	}
+
 	SitRepManager = class'X2SitRepTemplateManager'.static.GetSitRepTemplateManager();
 	XComHQ.TacticalGameplayTags.Length = 0;
 	while (NewMissionState.ActiveSitReps.Length > 0)
@@ -872,7 +962,8 @@ function BeginPreparationRound()
 		SitRepTemplate = SitRepManager.FindSitRepTemplate(SitRepInfo.SitRepTemplateName);
 		if ( SitRepTemplate != none && 
 			(SitRepTemplate.MinimumForceLevel == 0 || SitRepTemplate.MinimumForceLevel <= GetForceLevel(NewMissionState.WaveNumber + 1)) &&
-			(SitRepTemplate.MaximumForceLevel == 0 || SitRepTemplate.MaximumForceLevel >= GetForceLevel(NewMissionState.WaveNumber + 1)))
+			(SitRepTemplate.MaximumForceLevel == 0 || SitRepTemplate.MaximumForceLevel >= GetForceLevel(NewMissionState.WaveNumber + 1)) &&
+			(SitRepName == '' || SitRepInfo.SitRepTemplateName == SitRepName) )
 		{
 			ValidSitReps.AddItem(SitRepInfo);
 			MaxWeighting += SitRepInfo.Weight;
@@ -880,7 +971,7 @@ function BeginPreparationRound()
 		}
 	}
 
-	if ( (ValidSitReps.Length > 0) && (Rand(100) < GetSitRepChance(NewMissionState.WaveNumber + 1)) )
+	if ( (ValidSitReps.Length > 0) && ( (Rand(100) < GetSitRepChance(NewMissionState.WaveNumber + 1)) || bForceTrigger ) )
 	{
 		idx = -1;
 		Weighting = Rand(MaxWeighting);
@@ -897,15 +988,30 @@ function BeginPreparationRound()
 		BattleData.ActiveSitReps.AddItem(ValidSitReps[idx].SitRepTemplateName);
 	}
 
-	`XEVENTMGR.TriggerEvent('WaveCOM_WaveEnd',,, NewGameState);
+	if (bShouldSubmitState)
+	{
+		`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
+	}
+}
 
-	`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
+function UpdateChosenLevel(XComGameState NewGameState, int ForceLevel)
+{
+	local XComGameState_AdventChosen ChosenState;
+	local int idx;
 
-	BattleData.SetGlobalAbilityEnabled( 'PlaceEvacZone', false);
-
-	//`XCOMHISTORY.ArchiveHistory("Wave" @ NewMissionState.WaveNumber, true);
-
-	UpdateCombatCountdown();
+	foreach `XCOMHISTORY.IterateByClassType(class'XComGameState_AdventChosen', ChosenState)
+	{
+		for(idx = 0; idx < class'X2StrategyElement_XpackChosenActions'.default.ChosenLevelUpForceLevels.Length; idx++)
+		{
+			if(ChosenState.Level == idx && ForceLevel >= class'X2StrategyElement_XpackChosenActions'.default.ChosenLevelUpForceLevels[idx])
+			{
+				ChosenState = XComGameState_AdventChosen(NewGameState.ModifyStateObject(class'XComGameState_AdventChosen', ChosenState.ObjectID));
+				ChosenState.Level++;
+				ChosenState.GainNewStrengths(NewGameState, class'XComGameState_AdventChosen'.default.NumStrengthsPerLevel);
+				break; // 1 level up per wave end
+			}
+		}
+	}
 }
 
 defaultproperties

@@ -199,3 +199,55 @@ static function bool InitiateReinforcements(
 
 	return true;
 }
+
+function EventListenerReturn OnSpawnReinforcementsComplete(Object EventData, Object EventSource, XComGameState GameState, Name Event, Object CallbackData)
+{
+	local XComGameState NewGameState;
+	local XComGameStateHistory History;
+	local array<XComGameState_Unit> AffectedUnits;
+	local XComGameState_Unit AffectedUnit;
+	local int i;
+
+	History = `XCOMHISTORY;
+	NewGameState = class'XComGameStateContext_ChangeContainer'.static.CreateChangeState(default.SpawnReinforcementsCompleteChangeDesc);
+
+	if( SpawnVisualizationType != '' && 
+	   SpawnVisualizationType != 'TheLostSwarm' &&
+	   SpawnVisualizationType != 'ChosenSpecialNoReveal' &&
+	   SpawnVisualizationType != 'ChosenSpecialTopDownReveal' )
+	{
+		XComGameStateContext_ChangeContainer(NewGameState.GetContext()).BuildVisualizationFn = BuildVisualizationForSpawnerDestruction;
+	}
+
+	for( i = 0; i < SpawnedUnitIDs.Length; ++i )
+	{
+		AffectedUnits.AddItem(XComGameState_Unit(History.GetGameStateForObjectID(SpawnedUnitIDs[i])));
+
+		if( SpawnVisualizationType == 'ChosenSpecialNoReveal' ||
+		   SpawnVisualizationType == 'ChosenSpecialTopDownReveal' )
+		{
+			AffectedUnit = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', SpawnedUnitIDs[i]));
+			AffectedUnit.bTriggerRevealAI = true;
+			// Trigger Lightning Reflexes properly
+			if (AffectedUnit.HasSoldierAbility('LightningReflexes', true) )
+			{
+				AffectedUnit.bLightningReflexes = true;
+			}
+		}
+	}
+
+	// if there was an ATT, remove it now
+	if( TroopTransportRef.ObjectID > 0 )
+	{
+		NewGameState.RemoveStateObject(TroopTransportRef.ObjectID);
+	}
+
+	// remove this state object, now that we are done with it
+	NewGameState.RemoveStateObject(ObjectID);
+
+	NewGameState.GetContext().SetAssociatedPlayTiming(SPT_AfterSequential);
+
+	AlertAndScamperUnits(NewGameState, AffectedUnits, bForceScamper, GameState.HistoryIndex, SpawnVisualizationType);
+
+	return ELR_NoInterrupt;
+}

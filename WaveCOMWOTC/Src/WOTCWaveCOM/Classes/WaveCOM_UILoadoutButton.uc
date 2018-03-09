@@ -629,7 +629,6 @@ public function OpenDeployMenu(UIButton Button)
 	if (StrategyUnit != none)
 	{
 		StrategyUnit = AddStrategyUnitToBoard(StrategyUnit, History);
-		class'WaveCOM_MissionLogic_WaveCOM'.static.FullRefreshSoldier(StrategyUnit.GetReference());
 		if (StrategyUnit == none)
 		{
 			kDialogData.eType = eDialog_Alert;
@@ -639,6 +638,10 @@ public function OpenDeployMenu(UIButton Button)
 			kDialogData.strAccept = class'UIUtilities_Text'.default.m_strGenericYes;
 
 			`PRES.UIRaiseDialog(kDialogData);
+		}
+		else
+		{
+			class'WaveCOM_MissionLogic_WaveCOM'.static.FullRefreshSoldier(StrategyUnit.GetReference());
 		}
 		UpdateDeployCost();
 		return;

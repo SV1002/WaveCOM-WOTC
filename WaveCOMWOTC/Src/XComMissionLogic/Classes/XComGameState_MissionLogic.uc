@@ -242,13 +242,14 @@ private function EventListenerReturn CheckForDeadUnits(Object EventData, Object 
 	return ELR_NoInterrupt;
 }
 
-//Uses the event manager, but may also be called manually. If NewGameState is specified as 'none', then the system simply 
-//checks whether the specified player has playable units rather than being edge triggered. This is used as a failsafe by
-//the tactical game ruleset.
-private function bool DidPlayerRunOutOfPlayableUnits(XGPlayer InPlayer)
+// Take a list of players and go through all units to check if any players are remaining for said players, the array is modified to
+// contains only players that have run out of units.
+private function DidPlayerRunOutOfPlayableUnits(out array<XGPlayer> InPlayers)
 {	
 	local XComGameStateHistory History;
 	local XComGameState_Unit Unit;
+	local int i;
+	local array<int> AliveIDs;
 
 	History = `XCOMHISTORY;
 
@@ -257,24 +258,46 @@ private function bool DidPlayerRunOutOfPlayableUnits(XGPlayer InPlayer)
 	// the last unit was removed.
 	foreach History.IterateByClassType(class'XComGameState_Unit', Unit)
 	{
-		if( Unit.ControllingPlayer.ObjectID == InPlayer.ObjectID && !Unit.GetMyTemplate().bIsCosmetic && !Unit.IsTurret() && !Unit.GetMyTemplate().bNeverSelectable )
+		if( !Unit.GetMyTemplate().bIsCosmetic && !Unit.IsTurret() && !Unit.GetMyTemplate().bNeverSelectable )
 		{
 			Unit = XComGameState_Unit(History.GetGameStateForObjectID(Unit.ObjectID));
 			if( Unit == None || (Unit.IsAlive() && !Unit.bRemovedFromPlay && !Unit.IsIncapacitated()) )
 			{
-				return false;
+				AliveIDs.AddItem(Unit.ControllingPlayer.ObjectID);
 			}
 		}
 	}
 
-	// the alien team has units remaining if they have reinforcements already queued up
-	if( (InPlayer.m_eTeam == eTeam_Alien || InPlayer.m_eTeam == eTeam_TheLost) && AnyPendingReinforcements() )
+	i = 0;
+	while (i < InPlayers.Length)
 	{
-		return false;
+		if (AliveIDs.Find(InPlayers[i].ObjectID) != INDEX_NONE)
+		{
+			InPlayers.Remove(i, 1);
+		}
+		else
+		{
+			i++;
+		}
 	}
 
-	// this player had a unit removed from play and all other units are also out of play.
-	return true;
+
+	// the alien team has units remaining if they have reinforcements already queued up
+	i = 0;
+	if( AnyPendingReinforcements() )
+	{
+		while (i < InPlayers.Length)
+		{
+			if (InPlayers[i].m_eTeam == eTeam_Alien || InPlayers[i].m_eTeam == eTeam_TheLost)
+			{
+				InPlayers.Remove(i, 1);
+			}
+			else
+			{
+				i++;
+			}
+		}
+	}
 }
 
 function bool AnyPendingReinforcements()
@@ -314,16 +337,11 @@ private function EventListenerReturn CheckForTeamHavingNoPlayableUnits(Object Ev
 	
 	foreach History.IterateByClassType(class'XComGameState_Player', PlayerObject)
 	{
-		PlayerVisualizer = XGPlayer(PlayerObject.GetVisualizer());		
-		if( DefeatedPlayers.Find(PlayerVisualizer) == INDEX_NONE ) //See if we have already triggered for this player
-		{
-			if( DidPlayerRunOutOfPlayableUnits(PlayerVisualizer) )		
-			{
-				DefeatedPlayers.AddItem(PlayerVisualizer);
-			}
-		}
+		PlayerVisualizer = XGPlayer(PlayerObject.GetVisualizer());
+		DefeatedPlayers.AddItem(PlayerVisualizer);
 		AllPlayers.AddItem(PlayerVisualizer);
 	}
+	DidPlayerRunOutOfPlayableUnits(DefeatedPlayers);
 	if (DefeatedPlayers.Length > 0)
 	{
 		foreach NoPlayableUnitsRemainingEvents(Listener)
