@@ -1,6 +1,7 @@
 class WaveCOM_UIArmory_FieldLoadout extends UIArmory_MainMenu;
 
 var UITacticalHUD TacHUDScreen;
+var X2Camera_LookAtActor FocusCamera;
 
 simulated function OnAccept()
 {
@@ -238,6 +239,8 @@ static function SyncVisualizers(array<XComGameState_Unit> UnitStates)
 	local StateObjectReference ItemReference;
 	local XComGameState NewGameState;
 	local XComGameState_Item ItemState;
+	local XComHumanPawn SoldierPawn;
+	local XGUnit Visualizer;
 
 	StateChangeContainer = WaveCOM_SyncVisualizerRuleset(class'WaveCOM_SyncVisualizerRuleset'.static.CreateXComGameStateContext());
 	//StateChangeContainer.GameRuleType = eGameRule_ForceSyncVisualizers;
@@ -247,7 +250,14 @@ static function SyncVisualizers(array<XComGameState_Unit> UnitStates)
 	foreach UnitStates(UnitState)
 	{
 		XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitState.ObjectID));
-
+		
+		Visualizer = XGUnit(UnitState.FindOrCreateVisualizer());
+		SoldierPawn = XComHumanPawn(Visualizer.GetPawn());
+		if (SoldierPawn != none)
+		{
+			SoldierPawn.SetAppearance(UnitState.kAppearance);
+			//`log("SoldierPawn.SetAppearance",, 'WaveCOM');
+		}
 		`log("Unit visualizer sync requested:" @ UnitState.ObjectID,, 'WaveCOM');
 
 		foreach UnitState.InventoryItems(ItemReference)
@@ -404,6 +414,7 @@ simulated function OnCancel()
 	`log("Cancelling");
 	super.OnCancel();
 	UpdateActiveUnit();
+	`CAMERASTACK.RemoveCamera(FocusCamera);
 	WCScreen = WaveCOM_UILoadoutButton(TacHUDScreen.GetChildByName('WaveCOMUI'));
 	if (WCScreen != none)
 		WCScreen.RefreshCanRankUp();
@@ -416,7 +427,6 @@ function SetTacHUDScreen(UITacticalHUD Screenie)
 
 function Push_UICustomize_Menu(XComGameState_Unit UnitRef, Actor ActorPawnA)
 {
-	TacHUDScreen.Movie.Pres.InitializeCustomizeManager(UnitRef);
 	TacHUDScreen.Movie.Stack.Push(TacHUDScreen.Spawn(class'WaveCOM_UICustomize_Menu', TacHUDScreen));
 }
 
@@ -459,6 +469,7 @@ function Push_UISoldierBonds(StateObjectReference UnitRef)
 function Push_UIArmory_Promotion(StateObjectReference UnitRef, optional bool bInstantTransition)
 {
 	local UIArmory_Promotion PromotionUI;
+	local UIChooseClass ChooseClassUI;
 	local XComGameState_Unit UnitState;
 	local XComGameState_HeadquartersXCom XComHQ;
 	local XComGameState_Item InventoryItem;
@@ -468,9 +479,17 @@ function Push_UIArmory_Promotion(StateObjectReference UnitRef, optional bool bIn
 
 	local XComGameState NewGameState;
 	UnitState = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(UnitRef.ObjectID));
+	if ( UnitState.GetRank() == 0 && UnitState.CanRankUpSoldier() && `SecondWaveEnabled('WaveCOMCommandersChoice') )
+	{
+		ChooseClassUI = WaveCOM_UIChooseClass(TacHUDScreen.Movie.Stack.Push(TacHUDScreen.Spawn(class'WaveCOM_UIChooseClass', TacHUDScreen)));
+		ChooseClassUI.m_UnitRef = UnitRef;
+		return;
+	}
+
 	EffectContext = class'WaveCOMGameStateContext_UpdateUnit'.static.CreateChangeStateUU("RankUp", UnitState);
 	NewGameState = EffectContext.GetGameState();
 	UnitState = XComGameState_Unit(NewGameState.ModifyStateObject(class'XComGameState_Unit', UnitRef.ObjectID));
+
 
 	while (UnitState.CanRankUpSoldier() && !UnitState.bRankedUp)
 	{
@@ -725,12 +744,17 @@ simulated function PopulateData()
 	{
 		CustomizeButton.SetDisabled(true, "Customization not supported");
 	}
+	
+	FocusCamera.ActorToFollow = XGUnit(`XCOMHISTORY.GetVisualizer(UnitReference.ObjectID)).GetPawn();
 }
 
 simulated function InitArmory(StateObjectReference UnitRef, optional name DispEvent, optional name SoldSpawnEvent, optional name NavBackEvent, optional name HideEvent, optional name RemoveEvent, optional bool bInstant = false, optional XComGameState InitCheckGameState)
 {
 	UnitReference = UnitRef;
 	ResetUnitState();	
+	FocusCamera = new class'X2Camera_LookAtActor';
+	FocusCamera.UseTether = false;
+	`CAMERASTACK.AddCamera(FocusCamera);
 	bUseNavHelp = true;
 	super(UIArmory).InitArmory(UnitRef, DispEvent, SoldSpawnEvent, NavBackEvent, HideEvent, RemoveEvent, bInstant, InitCheckGameState);
 

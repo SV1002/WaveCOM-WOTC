@@ -50,7 +50,6 @@ simulated function CustomizeRace()
 
 simulated function CustomizeHelmet()
 {
-	CustomizeManager.UpdateCamera();
 	UICustomize_Trait(m_strHelmet, "", CustomizeManager.GetCategoryList(eUICustomizeCat_Helmet),
 		ChangeHelmet, ChangeHelmet, CanCycleTo, CustomizeManager.GetCategoryIndex(eUICustomizeCat_Helmet));
 
@@ -60,7 +59,6 @@ simulated function CustomizeHelmet()
 
 simulated function CustomizeFacePaint()
 {
-	CustomizeManager.UpdateCamera();
 	UICustomize_Trait(m_strFacePaint, "", CustomizeManager.GetCategoryList(eUICustomizeCat_FacePaint),
 								 ChangeFacePaint, ChangeFacePaint, CanCycleTo, CustomizeManager.GetCategoryIndex(eUICustomizeCat_FacePaint));
 
@@ -102,4 +100,35 @@ function UICustomize_Trait( string _Title,
 {
 	Movie.Stack.Push(Spawn(class'WaveCOM_UICustomize_Trait', Movie.Pres), Movie);
 	WaveCOM_UICustomize_Trait(Movie.Stack.GetCurrentScreen()).UpdateTrait( _Title, _Subtitle, _Data, _onSelectionChanged, _onItemClicked, _eligibilityCheck, startingIndex, _ConfirmButtonLabel, _onConfirmButtonClicked );
+}
+
+simulated function PrevSoldier()
+{
+	// Don't
+}
+
+simulated function NextSoldier()
+{
+	// Don't
+}
+
+simulated function UpdateNavHelp()
+{
+	// NO NavHelp
+}
+
+simulated function UpdateData()
+{
+	local XGUnit Visualizer;
+	super.UpdateData();
+
+	Visualizer = XGUnit(GetUnit().FindOrCreateVisualizer());
+
+	WaveCOM_UIMouseGuard_RotateCustomization(`SCREENSTACK.GetFirstInstanceOf(class'WaveCOM_UIMouseGuard_RotateCustomization'))
+		.SetCamera(WaveCOM_UICustomize_Menu(Movie.Pres.ScreenStack.GetScreen(class'WaveCOM_UICustomize_Menu')).LookatCharacter, Visualizer.GetPawn());
+}
+
+defaultproperties
+{
+	MouseGuardClass = class'WaveCOM_UIMouseGuard_RotateCustomization';
 }

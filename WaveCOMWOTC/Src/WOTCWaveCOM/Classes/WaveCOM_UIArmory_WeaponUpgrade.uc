@@ -170,88 +170,28 @@ simulated function ChangeActiveList(UIList kActiveList, optional bool bSkipAnima
 	UpdateNavHelp();
 }
 
-function PreviewWeaponPattern(UIList _list, int itemIndex)
+// Only allowed to customize name, please use customization menu for everything else
+simulated function UpdateCustomization(UIPanel DummyParam)
 {
-	local int newIndex;
-	local array<X2BodyPartTemplate> BodyParts;
-	local X2BodyPartTemplateManager PartManager;
+	local int i;
+	local XGParamTag LocTag;
 
 	CreateCustomizationState();
 
-	PartManager = class'X2BodyPartTemplateManager'.static.GetBodyPartTemplateManager();
-	PartManager.GetFilteredUberTemplates("Patterns", self, `XCOMGAME.SharedBodyPartFilter.FilterAny, BodyParts);
+	LocTag = XGParamTag(`XEXPANDCONTEXT.FindTag("XGParam"));
+	LocTag.StrValue0 = Caps(UpdatedWeapon.GetMyTemplate().GetItemFriendlyName(UpdatedWeapon.ObjectID));
 
-	newIndex = WrapIndex( itemIndex, 0, BodyParts.Length);
-	
-	UpdatedWeapon.WeaponAppearance.nmWeaponPattern = BodyParts[newIndex].DataName;
+	SetCustomizeTitle(`XEXPAND.ExpandString(m_strCustomizeWeaponTitle));
+
+	// WEAPON NAME
+	//-----------------------------------------------------------------------------------------
+
+	GetCustomizeItem(i++).UpdateDataDescription(m_strCustomizeWeaponName, OpenWeaponNameInputBox);
+
+	CustomizeList.SetPosition(CustomizationListX, CustomizationListY - CustomizeList.ShrinkToFit() - CustomizationListYPadding);
 
 	CleanupCustomizationState();
 }
-
-function UpdateWeaponPattern(UIList _list, int itemIndex)
-{
-	local int newIndex;
-	local array<X2BodyPartTemplate> BodyParts;
-	local X2BodyPartTemplateManager PartManager;
-	local XComGameState_Unit Unit;
-	local XGUnit Visualizer;
-
-	CreateCustomizationState();
-
-	PartManager = class'X2BodyPartTemplateManager'.static.GetBodyPartTemplateManager();
-	PartManager.GetFilteredUberTemplates("Patterns", self, `XCOMGAME.SharedBodyPartFilter.FilterAny, BodyParts);
-
-	newIndex = WrapIndex( itemIndex, 0, BodyParts.Length);
-	
-	UpdatedWeapon.WeaponAppearance.nmWeaponPattern = BodyParts[newIndex].DataName;
-	
-	// Transfer the new weapon pattern back to the owner Unit's appearance data ONLY IF the weapon is otherwise unmodified
-	Unit = GetUnit();
-	if (Unit != none && !UpdatedWeapon.HasBeenModified())
-	{
-		Unit = XComGameState_Unit(CustomizationState.ModifyStateObject(class'XComGameState_Unit', Unit.ObjectID));
-		Unit.kAppearance.nmWeaponPattern = UpdatedWeapon.WeaponAppearance.nmWeaponPattern;
-		Visualizer = XGUnit(Unit.FindOrCreateVisualizer());
-		XComHumanPawn(Visualizer.GetPawn()).SetAppearance(Unit.kAppearance);
-	}
-
-	SubmitCustomizationChanges();
-}
-
-
-function SetWeaponColor(int iColorIndex)
-{
-	local XComGameState_Unit Unit;
-	local array<string> Colors;
-	local XGUnit Visualizer;
-
-	Colors = GetWeaponColorList();
-	CreateCustomizationState();
-	UpdatedWeapon.WeaponAppearance.iWeaponTint = WrapIndex(iColorIndex, 0, Colors.Length);
-
-	// Transfer the new weapon color back to the owner Unit's appearance data ONLY IF the weapon is otherwise unmodified
-	Unit = GetUnit();
-	if (Unit != none && !UpdatedWeapon.HasBeenModified())
-	{
-		Unit = XComGameState_Unit(CustomizationState.ModifyStateObject(class'XComGameState_Unit', Unit.ObjectID));
-		Unit.kAppearance.iWeaponTint = UpdatedWeapon.WeaponAppearance.iWeaponTint;
-		Visualizer = XGUnit(Unit.FindOrCreateVisualizer());
-		XComHumanPawn(Visualizer.GetPawn()).SetAppearance(Unit.kAppearance);
-	}
-
-	SubmitCustomizationChanges();
-
-	CloseColorSelector();
-	CustomizeList.Show();
-	UpdateCustomization(none);
-	ShowListItems();
-}
-
-function int GetWeaponPatternIndex()
-{
-	return 0;
-}
-
 simulated function PrevSoldier()
 {
 	// Do not switch soldiers in this screen
@@ -260,10 +200,4 @@ simulated function PrevSoldier()
 simulated function NextSoldier()
 {
 	// Do not switch soldiers in this screen
-}
-
-simulated function CustomizeWeaponPattern()
-{
-	XComHQPresentationLayer(Movie.Pres).UIArmory_WeaponTrait(WeaponRef, class'WaveCOM_UICustomize_Props'.default.m_strWeaponPattern, GetWeaponPatternList(),
-		PreviewWeaponPattern, UpdateWeaponPattern, CanCycleTo, GetWeaponPatternIndex(),,, false);
 }

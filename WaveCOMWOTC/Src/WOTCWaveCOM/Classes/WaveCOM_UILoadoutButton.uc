@@ -614,10 +614,6 @@ public function OpenDeployMenu(UIButton Button)
 	local XComGameStateHistory History;
 	local XComGameState_Unit StrategyUnit;
 	local XComGameState_HeadquartersXCom XComHQ;
-	local ArtifactCost Resources;
-	local StrategyCost DeployCost;
-	local array<StrategyCostScalar> EmptyScalars;
-	local XComGameState NewGameState;
 
 	local TDialogueBoxData  kDialogData;
 
@@ -644,7 +640,6 @@ public function OpenDeployMenu(UIButton Button)
 			class'WaveCOM_MissionLogic_WaveCOM'.static.FullRefreshSoldier(StrategyUnit.GetReference());
 		}
 		UpdateDeployCost();
-		return;
 	}
 	else if (XComHQ.GetSupplies() < CurrentDeployCost)
 	{
@@ -658,9 +653,41 @@ public function OpenDeployMenu(UIButton Button)
 		kDialogData.strAccept = class'UIUtilities_Text'.default.m_strGenericYes;
 
 		`PRES.UIRaiseDialog(kDialogData);
+	}
+	else
+	{
+		kDialogData.eType = eDialog_Alert;
+		kDialogData.strTitle = "Confirm deployment.";
+		kDialogData.strText = "Are you sure you want to spend" @ CurrentDeployCost @ "supplies to deploy a new soldier?";
+		kDialogData.strAccept = class'UIUtilities_Text'.default.m_strGenericYes;
+		kDialogData.strCancel = class'UIUtilities_Text'.default.m_strGenericNO;
+		kDialogData.fnCallback = ComfirmDeployCallback;
 
+		`PRES.UIRaiseDialog(kDialogData);
+	}
+}
+
+
+simulated function ComfirmDeployCallback(name Action)
+{
+	local XComGameStateHistory History;
+	local XComGameState_Unit StrategyUnit;
+	local XComGameState_HeadquartersXCom XComHQ;
+	local ArtifactCost Resources;
+	local StrategyCost DeployCost;
+	local array<StrategyCostScalar> EmptyScalars;
+	local XComGameState NewGameState;
+
+	local TDialogueBoxData  kDialogData;
+
+	if (Action != 'eUIAction_Accept')
+	{
 		return;
 	}
+
+	History = `XCOMHISTORY;
+	// grab the archived strategy state from the history and the headquarters object
+	XComHQ = XComGameState_HeadquartersXCom(History.GetSingleGameStateObjectForClass(class'XComGameState_HeadquartersXCom'));
 
 	// try to get a unit from the strategy game
 	StrategyUnit = ChooseStrategyUnit(History);

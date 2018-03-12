@@ -49,6 +49,9 @@
     <Content Include="Config\XComWaveCOM.ini">
       <SubType>Content</SubType>
     </Content>
+    <Content Include="Localization\BetterSecondWaveSupport.int">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="Localization\WOTCWaveCOM.int">
       <SubType>Content</SubType>
     </Content>
@@ -77,6 +80,9 @@
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOMXComGameState_BlackMarket.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_Camera_Customization.uc">
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_MissionLogic_WaveCOM.uc">
@@ -115,6 +121,9 @@
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UIBlackMarket.uc">
       <SubType>Content</SubType>
     </Content>
+    <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UIChooseClass.uc">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UIChooseProvingGrounds.uc">
       <SubType>Content</SubType>
     </Content>
@@ -125,6 +134,9 @@
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UICustomize_Head.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UICustomize_Info.uc">
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UICustomize_Menu.uc">
@@ -143,6 +155,9 @@
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UILoadoutButton.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UIMouseGuard_RotateCustomization.uc">
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTCWaveCOM\Classes\WaveCOM_UIOfficerTrainingSchool.uc">
